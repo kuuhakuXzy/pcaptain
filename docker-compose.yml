@@ -1,0 +1,27 @@
+version: '3.8'
+services:
+  pcap-service:
+    build: .
+    image: pcap-catalog-service:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./pcaps:/app/pcaps
+      - ./pcaps2:/app/pcaps2
+    environment:
+      - PCAP_DIRECTORIES=/app/pcaps,/app/pcaps2
+      - REDIS_HOST=redis
+      - LOG_LEVEL=INFO
+    depends_on:
+      - redis
+
+  redis:
+    image: "redis:alpine"
+    volumes: 
+      - redis_data:/app
+    ports:
+      - "6380:6379"
+
+volumes: 
+  redis_data:
+
