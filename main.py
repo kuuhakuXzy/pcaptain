@@ -1,4 +1,4 @@
-# Apply asynchronous processing
+# Apply asynchronous processing (done)
 # Apply incremental redis update (done)
 # Apply CPU/memory usage limitation for scanning (done)
 # Use backoff to check redis status for initial scanning (done)
