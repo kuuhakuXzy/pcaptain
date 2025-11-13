@@ -20,7 +20,7 @@ services:
     depends_on:
       - redis
     ports:
-      - "${BE_BASE_PORT}:8000"
+      - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
       - ./pcaps:/app/pcaps
     env_file:
