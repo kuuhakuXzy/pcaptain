@@ -1,27 +1,50 @@
-version: '3.8'
 services:
-  pcap-service:
-    build: .
-    image: pcap-catalog-service:latest
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
     ports:
-      - "8000:8000"
+      - "${REDIS_PORT}:6379"
     volumes:
-      - ./pcaps:/app/pcaps
-      - ./pcaps2:/app/pcaps2
-    environment:
-      - PCAP_DIRECTORIES=/app/pcaps
-      - REDIS_HOST=redis
-      - LOG_LEVEL=INFO
+      - redis_data:/data
+    env_file:
+      - .env
+    networks:
+      - app_network
+    # network_mode: "host"
+
+  backend:
+    image: hnguyenxzy/pcap-catalog-service:2.0.0
+    container_name: backend
+    restart: always
     depends_on:
       - redis
-
-  redis:
-    image: "redis:alpine"
-    volumes: 
-      - redis_data:/app
     ports:
-      - "6380:6379"
+      - "${BE_BASE_PORT}:8000"
+    volumes:
+      - ./pcaps:/app/pcaps
+    env_file:
+      - .env
+    networks:
+      - app_network
 
-volumes: 
+  frontend:
+    image: datrung/pcap-frontend-app:1.0.4
+    container_name: frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT}:${NGINX_PORT}"
+    env_file:
+      - .env
+    networks:
+      - app_network
+
+volumes:
   redis_data:
+    # backend_logs:
 
+networks:
+  app_network:
+    driver: bridge
