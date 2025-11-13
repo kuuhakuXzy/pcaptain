@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="search-style.css">
+    <link rel="stylesheet" href="toast-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>PCAP Searching</title>
+    <!-- Axios CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>PCAP Search Tool</h1>
+        <div class="search-box">
+            <input id="searchInput" type="text" placeholder="Enter protocol..." required autocomplete="off" />
+            <div id="suggestionBox" class="suggestion-box hidden"></div>
+            <button id="searchBtn">Search</button>
+            <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
+            <button id="scanBtn">Scan</button>
+            <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
+        </div>
+
+        <!-- Status signal -->
+        <div class="status-signal"></div>
+
+        <div class="table-wrapper">
+            <table id="resultTable">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Path</th>
+                        <th>Size</th>
+                        <th>Packet</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+
+        <div id="scanModal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Select an option</h2>
+                <div class="button-group">
+                    <button id="scanAllBtn" class="action-btn">All</button>
+                    <button id="chooseDirBtn" class="action-btn">Choose Directory</button>
+                    <input type="file" id="directoryPicker" webkitdirectory multiple hidden>
+                </div>
+                <button id="closeModalBtn" class="close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script type="module" src="constant.js"></script>
+    <script type="module" src="toast-script.js"></script>
+    <script type="module" src="search-script.js"></script>
+</body>
+
+</html>
