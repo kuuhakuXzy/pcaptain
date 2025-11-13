@@ -1,1 +1,5 @@
+# PCAP directory
 pcaps/
+
+# ENV file
+.env
