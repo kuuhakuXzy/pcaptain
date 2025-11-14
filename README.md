@@ -38,7 +38,8 @@ The service, including `tshark` and all dependencies, runs inside a Docker conta
 3.  **Build and Run:** From the project root directory, build and run the service with a single command:
     ```bash
     docker-compose up --build
-    ```4.  The service is now running. The API is available at `http://localhost:8000`.
+    ```
+4.  The service is now running. The API is available at `http://localhost:8000`.
 
 ## API Endpoints
 
