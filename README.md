@@ -50,7 +50,7 @@ You can also use `curl` for testing.
 
 ### 1. Scanning and Indexing
 
-*(Note: An initial scan runs automatically on the first startup if the database is empty.)*
+*(Note: An initial scan runs automatically on the first startup.)*
 
 -   **Trigger a full re-scan of all directories:**
     ```bash
