@@ -6,6 +6,7 @@
 # Apply status health check api (done) 
 # Apply packets per protocol counting, using t-shark (done)
 # Apply fuzzy searching (done)
+# Apply configurable mounted directory
 
 import os
 import subprocess
@@ -26,7 +27,7 @@ from enum import Enum
 # --- Configuration ---
 load_dotenv()
 
-PCAP_DIRECTORIES_STR = os.getenv("PCAP_DIRECTORIES", "pcaps")
+PCAP_DIRECTORIES_STR = os.getenv("PCAP_MOUNTED_DIRECTORY", "pcaps")
 PCAP_DIRECTORIES = [path.strip() for path in PCAP_DIRECTORIES_STR.split(',')]
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")

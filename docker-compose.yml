@@ -5,6 +5,7 @@ services:
     restart: always
     ports:
       - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
+    command: redis-server --port ${REDIS_INTERNAL_PORT}
     volumes:
       - redis_data:/data
     env_file:
@@ -22,7 +23,7 @@ services:
     ports:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
-      - ./pcaps:/app/pcaps
+      - "./pcaps:${PCAP_MOUNTED_DIRECTORY}"
     env_file:
       - .env
     networks:
