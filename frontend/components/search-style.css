@@ -309,6 +309,7 @@ thead tr {
 }
 
 .action-btn {
+    flex: 1;
     background-color: #4CAF50;
     color: white;
     border: none;
