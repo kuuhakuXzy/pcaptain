@@ -2,9 +2,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
-    restart: always
-    ports:
-      - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
+    restart: unless-stopped # Use 'unless-stopped' to keep Redis running unless explicitly stopped
+    # ports:
+    #   - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}" # Do we need to expose Redis outside the Docker network?
     command: redis-server --port ${REDIS_INTERNAL_PORT}
     volumes:
       - redis_data:/data
@@ -12,14 +12,20 @@ services:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     # network_mode: "host"
 
   backend:
     build: .
     container_name: backend
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     ports:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
@@ -28,19 +34,30 @@ services:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request, sys, os; port=os.getenv('BE_INTERNAL_PORT','8000'); url=f'http://localhost:{port}/health'; urllib.request.urlopen(url)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   frontend:
     build: ./frontend
     container_name: frontend
-    restart: always
+    restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT}:${NGINX_PORT}"
     env_file:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${NGINX_PORT:-80} >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   redis_data:
