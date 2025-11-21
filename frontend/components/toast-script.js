@@ -1,3 +1,4 @@
+// toast-script.js
 import { TOAST_STATUS } from "./constant.js";
 
 export function showToast(status, message) {

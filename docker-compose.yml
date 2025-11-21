@@ -15,7 +15,7 @@ services:
     # network_mode: "host"
 
   backend:
-    image: hnguyenxzy/pcap-catalog-service:2.0.0
+    build: .
     container_name: backend
     restart: always
     depends_on:
@@ -30,7 +30,7 @@ services:
       - app_network
 
   frontend:
-    image: datrung/pcap-frontend-app:1.0.4
+    build: ./frontend
     container_name: frontend
     restart: always
     depends_on:

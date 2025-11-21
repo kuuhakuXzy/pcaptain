@@ -27,20 +27,58 @@
         <!-- Status signal -->
         <div class="status-signal"></div>
 
+        <!-- Control setting for sorting and pagination -->
+        <div class="controls-container">
+            <div class="control-group">
+                <label for="sortBy">Sort by:</label>
+                <select id="sortBy" class="control-select">
+                    <option value="filename">Name</option>
+                    <option value="size_bytes">Size</option>
+                    <option value="protocol_packet_count">Packet Count</option>
+                </select>
+                
+                <select id="sortOrder" class="control-select">
+                    <option value="false">Ascending</option>
+                    <option value="true">Descending</option>
+                </select>
+
+                <label for="limitSelect">Show:</label>
+                <select id="limitSelect" class="control-select">
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+
+            <!-- <div class="control-group">
+                <button id="prevBtn" class="pagination-btn" disabled>&lt; Prev</button>
+                <span id="pageInfo">Page 1</span>
+                <button id="nextBtn" class="pagination-btn" disabled>Next &gt;</button>
+            </div> -->
+        </div>
+
         <div class="table-wrapper">
             <table id="resultTable">
                 <thead>
                     <tr>
                         <th>Filename</th>
+                        <th class="thInfo">Info</th>
                         <th>Path</th>
                         <th>Size</th>
                         <th>Packet</th>
+                        
                     </tr>
                 </thead>
                 <tbody id="resultBody">
                     <!-- Dynamic content -->
                 </tbody>
             </table>
+        </div>
+
+        <!-- Pagination PCAP search results -->
+        <div id="paginationContainer" class="pagination-container">
         </div>
 
         <div id="scanModal" class="modal hidden">
@@ -54,6 +92,50 @@
                 <button id="closeModalBtn" class="close-btn">Close</button>
             </div>
         </div>
+
+        
+        <div id="infoModal" class="modal hidden">
+            <div class="modal-content info-modal-content">
+                <!-- <div class="modal-header">
+                    <h2>File Details</h2>
+                    <span id="closeInfoModal" class="close-btn">&times;</span>
+                </div> -->
+                
+                <div class="modal-body">
+                    <div class="info-row">
+                        <strong>Filename:</strong> <span id="infoFilename"></span>
+                    </div>
+                    <div class="info-row">
+                        <strong>Full Path:</strong> <span id="infoPath"></span>
+                    </div>
+                    
+                    <hr class="info-divider">
+
+                    <div class="info-row">
+                        <strong>Size:</strong> <span id="infoSize"></span>
+                    </div>
+                    <div class="info-row">
+                        <strong>Packet Count:</strong>  <span id="infoPackets"></span>
+                    </div>
+                    <div class="info-row">
+                        <strong>Last Modified:</strong> <span id="infoModified"></span>
+                    </div>
+                    <div class="info-row">
+                        <strong>Last Scanned:</strong> <span id="infoScanned"></span>
+                    </div>
+
+                    <hr class="info-divider">
+
+                    <div class="info-row">
+                        <strong>Protocols Found:</strong>
+                        <div id="infoProtocols" class="protocol-badges">
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
     </div>
 
     <script src="config.js"></script>
