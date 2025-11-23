@@ -1,3 +1,4 @@
+// constant.js
 const API_PATH = Object.freeze({
     PCAP_REINDEX_PATH: "reindex",
     PCAP_SEARCHING_PATH: "search",

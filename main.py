@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 import logging
 import asyncio 
 import backoff
+import time
 from concurrent.futures import ThreadPoolExecutor 
 from enum import Enum
 
@@ -172,6 +173,7 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                 if await asyncio.to_thread(redis_client.exists, pcap_key):
                     stored_path = await asyncio.to_thread(redis_client.hget, pcap_key, "path")
                     if stored_path == file_path:
+                        await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
                         logger.info(f"Skipping {file_path} (already indexed and unchanged)")
                         continue
                     elif await asyncio.to_thread(os.path.exists, stored_path): 
@@ -205,6 +207,8 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                     
                     protocols = sorted(list(protocol_data.keys()))
 
+                    current_time = time.time()
+
                     pipe = redis_client.pipeline()
 
                     pipe.hset(pcap_key, mapping={
@@ -214,8 +218,11 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                         "size_bytes": file_size, 
                         "protocols": ",".join(protocols), 
                         "protocol_counts": json.dumps(protocol_data), 
-                        "download_url": download_url
+                        "download_url": download_url,
+                        "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
+                        "last_scanned": current_time,
                     })
+
                     autocomplete_payload = {proto: 0 for proto in protocols}
                     if autocomplete_payload:
                         pipe.zadd(AUTOCOMPLETE_KEY, autocomplete_payload)
@@ -279,6 +286,27 @@ def scan_wrapper(exclude_files=None, base_url=None):
         if scan_status["state"] != ScanState.FAILED:
             scan_status["state"] = ScanState.IDLE
 
+# SCAN SCHEDULER
+async def scheduled_scan_loop():
+    """Runs in the background and triggers a scan every X seconds."""
+    while True:
+        try:
+            interval = int(os.getenv("SCAN_INTERVAL_SECONDS", 3600))
+
+            await asyncio.sleep(interval)
+
+            if scan_status["state"] == ScanState.IDLE:
+                logger.info(f"Starting scheduled scan (Interval: {interval}s)...")
+                loop = asyncio.get_running_loop()
+                
+                await loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=None, base_url=FULL_BASE_URL))
+            else:
+                logger.info("Scheduled scan skipped: Scanner is currently busy.")
+                
+        except Exception as e:
+            logger.error(f"Error in scheduled scan loop: {e}")
+            await asyncio.sleep(60) 
+
 
 # --- API Endpoints ---
 @app.on_event("startup") 
@@ -303,6 +331,8 @@ async def startup_event():
             logger.error(f"Failed to check Redis for existing pcaps during startup: {e}")
     else:
         logger.error("Redis client is not available. Cannot perform startup check or scan.")
+
+    asyncio.create_task(scheduled_scan_loop())
 
 @app.get("/health")
 async def health_check():
@@ -329,8 +359,57 @@ async def reindex_specific_folder(folder_name: str, request: Request, exclude: O
         raise HTTPException(status_code=500, detail=result["error"])
     return JSONResponse(content=result)
 
+# @app.get("/search", summary="Search for pcaps containing a specific protocol")
+# async def search_pcaps(protocol: str = Query(..., description="The protocol name to search for, e.g., sip")):
+#     if not redis_client:
+#         raise HTTPException(status_code=503, detail="Service unavailable: Redis connection failed.")
+
+#     index_key = f"pcap:index:protocol:{protocol.lower()}"
+
+#     try:
+#         matching_hashes = await asyncio.to_thread(redis_client.smembers, index_key)
+#         if not matching_hashes:
+#             return []
+
+#         pipe = redis_client.pipeline()
+#         for file_hash in matching_hashes:
+#             pipe.hgetall(f"pcap:file:{file_hash}")
+#         raw_results = await asyncio.to_thread(pipe.execute)
+        
+#         results = []
+#         for pcap_data in raw_results:
+#             if pcap_data:
+#                 counts_str = pcap_data.pop("protocol_counts", None)
+#                 packet_count = 0
+#                 if counts_str:
+#                     try:
+#                         counts_dict = json.loads(counts_str)
+#                         packet_count = counts_dict.get(protocol, 0)
+#                     except json.JSONDecodeError:
+#                         logger.warning(f"Could not parse protocol_counts for pcap hash")
+                
+#                 pcap_data["searched_protocol"] = protocol
+#                 pcap_data["protocol_packet_count"] = packet_count
+#                 results.append(pcap_data)
+        
+#         return results
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"An error occurred while querying Redis: {e}")
+
+class SortField(str, Enum):
+    filename = "filename"
+    size = "size_bytes"
+    count = "protocol_packet_count"
+    path = "path"
+
 @app.get("/search", summary="Search for pcaps containing a specific protocol")
-async def search_pcaps(protocol: str = Query(..., description="The protocol name to search for, e.g., sip")):
+async def search_pcaps(
+    protocol: str = Query(..., description="The protocol name to search for, e.g., sip"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
+    sort_by: SortField = Query(SortField.filename, description="Field to sort by"),
+    descending: bool = Query(False, description="Sort in descending order")
+):
     if not redis_client:
         raise HTTPException(status_code=503, detail="Service unavailable: Redis connection failed.")
 
@@ -339,7 +418,7 @@ async def search_pcaps(protocol: str = Query(..., description="The protocol name
     try:
         matching_hashes = await asyncio.to_thread(redis_client.smembers, index_key)
         if not matching_hashes:
-            return []
+            return {"total": 0, "page": page, "limit": limit, "data": []}
 
         pipe = redis_client.pipeline()
         for file_hash in matching_hashes:
@@ -356,14 +435,39 @@ async def search_pcaps(protocol: str = Query(..., description="The protocol name
                         counts_dict = json.loads(counts_str)
                         packet_count = counts_dict.get(protocol, 0)
                     except json.JSONDecodeError:
-                        logger.warning(f"Could not parse protocol_counts for pcap hash")
+                        logger.warning(f"Could not parse protocol_counts")
                 
                 pcap_data["searched_protocol"] = protocol
                 pcap_data["protocol_packet_count"] = packet_count
                 results.append(pcap_data)
-        
-        return results
+
+        # SORTING LOGIC
+        def get_sort_key(item):
+            val = item.get(sort_by.value)
+            if sort_by in [SortField.size, SortField.count]:
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    return 0
+            return str(val).lower()
+
+        results.sort(key=get_sort_key, reverse=descending)
+
+        # PAGINATION LOGIC
+        total_items = len(results)
+        start_index = (page - 1) * limit
+        end_index = start_index + limit
+        paginated_data = results[start_index:end_index]
+
+        return {
+            "total": total_items,
+            "page": page,
+            "limit": limit,
+            "data": paginated_data
+        }
+
     except Exception as e:
+        logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred while querying Redis: {e}")
 
 @app.get("/protocols/suggest", summary="Get protocol name suggestions for autocomplete")
