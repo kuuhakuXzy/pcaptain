@@ -15,7 +15,7 @@ services:
     # network_mode: "host"
 
   backend:
-    build: .
+    image: mika1512/pcap-catalog-service:2.1.0
     container_name: backend
     restart: always
     depends_on:
@@ -30,7 +30,7 @@ services:
       - app_network
 
   frontend:
-    build: ./frontend
+    image: mika1512/pcap-frontend-app:1.1.0
     container_name: frontend
     restart: always
     depends_on:
