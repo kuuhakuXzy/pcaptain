@@ -8,6 +8,7 @@ from services.hashing_service import HashingService
 from services.pcap_parser import PcapParser
 from services.redis_service import RedisService
 
+
 @service
 class ScannerService:
     def __init__(self):
@@ -22,10 +23,11 @@ class ScannerService:
         seen = set()
         indexed = 0
         autocomplete_key = "pcap:protocols:autocomplete"
+        found_matching_folder = False
 
         if not await asyncio.to_thread(os.path.isdir, directory):
             logging.warning(f"Directory does not exist: {directory}")
-            return 0
+            return {"error": f"Directory '{directory}' does not exist"}
 
         for root, dirs, files in await asyncio.to_thread(os.walk, directory):
             # If target_folder is specified, only scan paths that contain that folder
@@ -33,8 +35,12 @@ class ScannerService:
                 # Get relative path from base directory
                 rel_path = os.path.relpath(root, directory)
                 # Check if target_folder is anywhere in the path (supports nested folders)
-                if target_folder not in rel_path.split(os.sep) and rel_path != target_folder:
+                if (
+                    target_folder not in rel_path.split(os.sep)
+                    and rel_path != target_folder
+                ):
                     continue
+                found_matching_folder = True
 
             for file in files:
                 if file in exclude or not file.endswith((".pcap", ".pcapng", ".cap")):
@@ -57,14 +63,17 @@ class ScannerService:
                 url = f"{base_url}/pcaps/download/{file_hash}" if base_url else ""
 
                 pipe = self.redis_service.client.pipeline()
-                pipe.hset(pcap_key, mapping={
-                    "filename": file,
-                    "path": path,
-                    "size_bytes": size,
-                    "protocols": ",".join(parse.keys()),
-                    "protocol_counts": json.dumps(parse),
-                    "download_url": url,
-                })
+                pipe.hset(
+                    pcap_key,
+                    mapping={
+                        "filename": file,
+                        "path": path,
+                        "size_bytes": size,
+                        "protocols": ",".join(parse.keys()),
+                        "protocol_counts": json.dumps(parse),
+                        "download_url": url,
+                    },
+                )
 
                 payload = {proto: 0 for proto in parse.keys()}
                 pipe.zadd(autocomplete_key, payload)
@@ -75,4 +84,15 @@ class ScannerService:
                 await asyncio.to_thread(pipe.execute)
                 indexed += 1
 
+        if target_folder and not found_matching_folder:
+            logging.warning(
+                f"No folder named '{target_folder}' found under {directory}"
+            )
+            return {
+                "status": "warning",
+                "message": f"No folder named '{target_folder}' found.",
+                "indexed_files": 0,
+            }
+
+        logging.info(f"Indexing successful. Processed {indexed} files.")
         return indexed

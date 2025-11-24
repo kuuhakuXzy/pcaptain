@@ -36,7 +36,9 @@ app = FastAPI(title="Pcap Catalog Service")
 # CORS (if needed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin for origin in settings.get("backend", {}).get("allowed_origins", [])],
+    allow_origins=[
+        origin for origin in settings.get("backend", {}).get("allowed_origins", [])
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +57,31 @@ app.include_router(health.router)
 executor = ThreadPoolExecutor()
 
 
+async def scheduled_scan_loop():
+    """Runs in the background and triggers a scan every X seconds."""
+    while True:
+        try:
+            interval = int(os.getenv("SCAN_INTERVAL_SECONDS", 3600))
+            await asyncio.sleep(interval)
+
+            # Import scan_status from scan module
+            from api.scan import scan_status, ScanState
+
+            if scan_status["state"] == ScanState.IDLE:
+                logger.info("Starting scheduled background scan.")
+                pcap_dir = settings.get("pcap_directory")
+                public_base_url = settings.get("backend", {}).get("public_base_url")
+                asyncio.create_task(
+                    scanner_service.scan(pcap_dir, base_url=public_base_url)
+                )
+            else:
+                logger.info(f"Scan already running, state: {scan_status['state']}")
+
+        except Exception as e:
+            logger.error(f"Error in scheduled scan loop: {e}")
+            await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def startup_event():
     # Optionally check Redis and kick off initial scan
@@ -62,12 +89,26 @@ async def startup_event():
         try:
             keys = await asyncio.to_thread(redis_client.keys, "pcap:file:*")
             if not keys:
-                logger.info("No indexed pcaps found. Starting initial scan in background.")
+                logger.info(
+                    "No indexed pcaps found. Starting initial scan in background."
+                )
                 loop = asyncio.get_event_loop()
-                loop.run_in_executor(executor, lambda: asyncio.run(scanner_service.scan(settings.PCAP_DIRECTORY, base_url=settings.FULL_BASE_URL)))
+                pcap_dir = settings.get("pcap_directory")
+                public_base_url = settings.get("backend", {}).get("public_base_url")
+                loop.run_in_executor(
+                    executor,
+                    lambda: asyncio.run(
+                        scanner_service.scan(pcap_dir, base_url=public_base_url)
+                    ),
+                )
             else:
-                logger.info(f"Found {len(keys)} indexed pcaps. Skipping initial full scan.")
+                logger.info(
+                    f"Found {len(keys)} indexed pcaps. Skipping initial full scan."
+                )
         except Exception as e:
             logger.exception("Failed to check Redis during startup")
     else:
         logger.error("Redis client not available at startup")
+
+    # Start scheduled scan loop
+    asyncio.create_task(scheduled_scan_loop())
