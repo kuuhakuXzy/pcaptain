@@ -54,8 +54,8 @@ searchInput.addEventListener("keypress", (e) => {
 
 const sortBySelect = document.getElementById("sortBy");
 const sortOrderSelect = document.getElementById("sortOrder");
-
 const limitSelect = document.getElementById("limitSelect");
+
 // Listen to user's items per page
 if (limitSelect) {
     limitSelect.addEventListener("change", (e) => {
@@ -481,13 +481,46 @@ function openInfoModal(file, event) {
     // Fill all protocols
     const protoContainer = document.getElementById("infoProtocols");
     protoContainer.innerHTML = "";
+
+    let percentMap = {};
+
+    if (file.protocol_percentages) {
+
+        try {
+
+            percentMap = JSON.parse(file.protocol_percentages);
+
+        } catch (e) {
+
+            console.error("Error parsing percentages:", e);
+
+        }
+
+    }
     
     if (file.protocols) {
         const protos = file.protocols.split(","); 
         protos.forEach(p => {
             const badge = document.createElement("span");
             badge.className = "proto-badge";
-            badge.innerText = p.toUpperCase();
+            
+            const pct = percentMap[p] || 0;
+            badge.innerText = `${p.toUpperCase()} (${pct}%)`;
+            
+            badge.style.cursor = "pointer";
+            badge.title = `Click to download only ${p.toUpperCase()} packets`;
+
+            badge.addEventListener("click", async (e) => {
+                e.stopPropagation(); 
+                
+                showToast(TOAST_STATUS.INFO, `Preparing download for ${p.toUpperCase()}...`);
+                
+                const fileHash = file.download_url.split("/").pop(); 
+                const downloadUrl = `${SERVER}pcaps/download/${fileHash}/filter?protocol=${p}`;
+                
+                window.location.href = downloadUrl;
+            });
+
             protoContainer.appendChild(badge);
         });
     }

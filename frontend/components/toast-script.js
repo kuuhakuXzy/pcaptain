@@ -21,6 +21,14 @@ export function showToast(status, message) {
             <span class="close-btn">&times;</span>
         `;
         toast.classList.add("success");
+    } else if (status === TOAST_STATUS.INFO) { 
+        toast.innerHTML = `
+            <i class="fa fa-info-circle"></i>
+            <span>${message}</span>
+            <span class="close-btn">&times;</span>
+        `;
+        toast.classList.add("info");
+
     } else if (status === TOAST_STATUS.WARNING) {
         toast.innerHTML = `
             <i class="fa fa-exclamation-triangle"></i>
