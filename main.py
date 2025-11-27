@@ -14,6 +14,7 @@ import redis
 import json
 import hashlib  
 import re 
+import uuid
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from typing import List, Optional, Dict, Any 
@@ -24,6 +25,7 @@ import backoff
 import time
 from concurrent.futures import ThreadPoolExecutor 
 from enum import Enum
+from fastapi import BackgroundTasks
 
 # --- Configuration ---
 load_dotenv()
@@ -93,6 +95,8 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
         if output:
             protocol_counts = {}
             lines = output.splitlines()
+
+            path_stack = []
            
             table_started = False
             for line in lines:
@@ -101,7 +105,6 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
                     continue
                 if not table_started or line.startswith("=") or not line.strip():
                     continue
-                
 
                 parts = line.split()
                 if len(parts) < 2 or "frames:" not in line:
@@ -109,9 +112,25 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
                 
                 proto_name = parts[0].strip()
                 match = re.search(r'frames:(\d+)', line)
-                if match:
-                    count = int(match.group(1))
-                    protocol_counts[proto_name] = count
+                if not match:
+                    continue
+                count = int(match.group(1))
+
+                indent_size = len(line) - len(line.lstrip())
+                
+                while path_stack and path_stack[-1]['indent'] >= indent_size:
+                    path_stack.pop()
+
+                is_nested_occurrence = any(item['name'] == proto_name for item in path_stack)
+
+                if not is_nested_occurrence:
+                    if proto_name in protocol_counts:
+                        protocol_counts[proto_name] += count
+                    else:
+                        protocol_counts[proto_name] = count
+
+                path_stack.append({'name': proto_name, 'indent': indent_size})
+
             return protocol_counts
 
         if result.returncode != 0:
@@ -129,6 +148,24 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
 async def get_protocols_from_pcap(pcap_file: str) -> Optional[Dict[str, int]]:
     return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file)
 
+def calculate_protocol_percentages(protocol_counts: Dict[str, int]) -> Dict[str, float]:
+    """
+    Calculates the presence percentage of each protocol relative to the total file.
+    """
+    if not protocol_counts:
+        return {}
+
+    total_packets = max(protocol_counts.values())
+
+    if total_packets == 0:
+        return {k: 0.0 for k in protocol_counts}
+
+    percentages = {
+        proto: round((count / total_packets) * 100, 2) 
+        for proto, count in protocol_counts.items()
+    }
+    
+    return percentages
 
 # --- Indexing Functionality ---
 async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, target_folder: Optional[str] = None) -> dict:
@@ -195,6 +232,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                     if not protocol_data:
                         logger.warning(f"No protocols found in {filename}. Skipping from index.")
                         continue
+
+                    protocol_percentages = calculate_protocol_percentages(protocol_data)
+
                     file_size = await asyncio.to_thread(os.path.getsize, file_path)
 
                     file_hash = await calculate_sha256(file_path)
@@ -218,6 +258,7 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                         "size_bytes": file_size, 
                         "protocols": ",".join(protocols), 
                         "protocol_counts": json.dumps(protocol_data), 
+                        "protocol_percentages": json.dumps(protocol_percentages),
                         "download_url": download_url,
                         "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
                         "last_scanned": current_time,
@@ -359,43 +400,6 @@ async def reindex_specific_folder(folder_name: str, request: Request, exclude: O
         raise HTTPException(status_code=500, detail=result["error"])
     return JSONResponse(content=result)
 
-# @app.get("/search", summary="Search for pcaps containing a specific protocol")
-# async def search_pcaps(protocol: str = Query(..., description="The protocol name to search for, e.g., sip")):
-#     if not redis_client:
-#         raise HTTPException(status_code=503, detail="Service unavailable: Redis connection failed.")
-
-#     index_key = f"pcap:index:protocol:{protocol.lower()}"
-
-#     try:
-#         matching_hashes = await asyncio.to_thread(redis_client.smembers, index_key)
-#         if not matching_hashes:
-#             return []
-
-#         pipe = redis_client.pipeline()
-#         for file_hash in matching_hashes:
-#             pipe.hgetall(f"pcap:file:{file_hash}")
-#         raw_results = await asyncio.to_thread(pipe.execute)
-        
-#         results = []
-#         for pcap_data in raw_results:
-#             if pcap_data:
-#                 counts_str = pcap_data.pop("protocol_counts", None)
-#                 packet_count = 0
-#                 if counts_str:
-#                     try:
-#                         counts_dict = json.loads(counts_str)
-#                         packet_count = counts_dict.get(protocol, 0)
-#                     except json.JSONDecodeError:
-#                         logger.warning(f"Could not parse protocol_counts for pcap hash")
-                
-#                 pcap_data["searched_protocol"] = protocol
-#                 pcap_data["protocol_packet_count"] = packet_count
-#                 results.append(pcap_data)
-        
-#         return results
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"An error occurred while querying Redis: {e}")
-
 class SortField(str, Enum):
     filename = "filename"
     size = "size_bytes"
@@ -507,3 +511,71 @@ async def download_pcap_by_hash(file_hash: str):
         raise HTTPException(status_code=403, detail="Forbidden: Access is denied.")
     
     return FileResponse(abs_path, media_type='application/vnd.tcpdump.pcap', filename=filename)
+
+def remove_file(path: str):
+    try:
+        os.remove(path)
+        logger.info(f"Cleaned up temporary file: {path}")
+    except Exception as e:
+        logger.error(f"Error deleting temporary file {path}: {e}")
+
+@app.get("/pcaps/download/{file_hash}/filter", summary="Download a filtered subset of a pcap")
+async def download_filtered_pcap(
+    file_hash: str, 
+    protocol: str, 
+    background_tasks: BackgroundTasks
+):
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+
+    file_metadata = await asyncio.to_thread(redis_client.hgetall, f"pcap:file:{file_hash}")
+    if not file_metadata:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    original_path = file_metadata.get("path")
+    original_filename = file_metadata.get("filename")
+    
+    if not re.match(r"^[a-zA-Z0-9_.-]+$", protocol):
+        raise HTTPException(status_code=400, detail="Invalid protocol format")
+
+    temp_filename = f"filtered_{protocol}_{uuid.uuid4()}.pcap"
+    temp_filepath = f"/tmp/{temp_filename}"
+
+    cmd = [
+        "tshark",
+        "-r", original_path,
+        "-Y", protocol,       
+        "-w", temp_filepath   
+    ]
+
+    logger.info(f"Starting filtered export: {' '.join(cmd)}")
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            logger.error(f"Tshark filter failed: {stderr.decode()}")
+            raise HTTPException(status_code=500, detail="Failed to filter pcap file.")
+            
+        if not os.path.exists(temp_filepath) or os.path.getsize(temp_filepath) == 0:
+             raise HTTPException(status_code=404, detail=f"No packets found for protocol '{protocol}'")
+
+    except Exception as e:
+        logger.error(f"Error executing tshark: {e}")
+        # Clean up if it failed halfway
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+        raise HTTPException(status_code=500, detail="Internal Server Error during filtering")
+
+    background_tasks.add_task(remove_file, temp_filepath)
+
+    return FileResponse(
+        temp_filepath, 
+        media_type='application/vnd.tcpdump.pcap', 
+        filename=f"subset_{protocol}_{original_filename}"
+    )

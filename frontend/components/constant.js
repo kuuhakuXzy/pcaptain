@@ -11,7 +11,8 @@ const TOAST_STATUS = Object.freeze({
     SUCCESS: "Success",
     WARNING: "Warning",
     NOT_FOUND: "Not found",
-    ERROR: "Error"
+    ERROR: "Error",
+    INFO: "Info"
 });
 
 const SERVER_SCANNING_FILE_STATUS = Object.freeze({
