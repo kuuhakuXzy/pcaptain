@@ -24,7 +24,7 @@ services:
     ports:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
-      - "./pcaps:${PCAP_MOUNTED_DIRECTORY}"
+      - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}:ro"
     env_file:
       - .env
     networks:
