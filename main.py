@@ -82,64 +82,37 @@ async def calculate_sha256(file_path: str) -> str:
     return await asyncio.to_thread(calculate_sha256_sync, file_path)
 
 def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
-    command = ['tshark', '-r', pcap_file, '-q', '-z', 'io,phs']
+    command = [
+        'tshark', '-r', pcap_file,
+        '-T', 'fields',
+        '-e', 'frame.protocols'
+    ]
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-        output = result.stdout.strip()
-        stderr_output = result.stderr.strip()
-
-        if "The capture file appears to have been cut short" in stderr_output:
-            logger.warning(f"[Truncated File] {pcap_file} appears cut short — partial data used.")
-
-        if output:
-            protocol_counts = {}
-            lines = output.splitlines()
-
-            path_stack = []
-           
-            table_started = False
-            for line in lines:
-                if "Protocol Hierarchy Statistics" in line:
-                    table_started = True
-                    continue
-                if not table_started or line.startswith("=") or not line.strip():
-                    continue
-
-                parts = line.split()
-                if len(parts) < 2 or "frames:" not in line:
-                    continue
-                
-                proto_name = parts[0].strip()
-                match = re.search(r'frames:(\d+)', line)
-                if not match:
-                    continue
-                count = int(match.group(1))
-
-                indent_size = len(line) - len(line.lstrip())
-                
-                while path_stack and path_stack[-1]['indent'] >= indent_size:
-                    path_stack.pop()
-
-                is_nested_occurrence = any(item['name'] == proto_name for item in path_stack)
-
-                if not is_nested_occurrence:
-                    if proto_name in protocol_counts:
-                        protocol_counts[proto_name] += count
-                    else:
-                        protocol_counts[proto_name] = count
-
-                path_stack.append({'name': proto_name, 'indent': indent_size})
-
-            return protocol_counts
+        result = subprocess.run(command, capture_output=True, text=True)
 
         if result.returncode != 0:
-            logger.error(f"tshark exited with code {result.returncode} for {pcap_file}: {stderr_output}")
+            logger.error(f"tshark exited with error for {pcap_file}: {result.stderr}")
             return None
 
-        return {}
+        output = result.stdout.strip()
+        if not output:
+            return {}
+
+        protocol_counts: Dict[str, int] = {}
+
+        for line in output.splitlines():
+            protocols = line.split(":")
+
+            unique_protocols = set(protocols)
+
+            for proto in unique_protocols:
+                protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
+
+        return protocol_counts
+
     except FileNotFoundError:
-        logger.error("tshark not found — please ensure it is installed in the container or host.")
+        logger.error("tshark not found — please install it.")
         return None
     except Exception as e:
         logger.error(f"Unexpected error while analyzing {pcap_file}: {e}")

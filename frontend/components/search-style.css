@@ -580,12 +580,15 @@ a:visited {
     position: absolute; 
     z-index: 1000;
     width: 400px;
-    height: 400px; 
+    height: auto;
+    min-height: 400px;
+    max-height: 80vh; 
     background-color: #fff;
     border-radius: 8px;
     box-shadow: 0 5px 20px rgba(0,0,0,0.2);
     border: 1px solid #dcdcdc;
     display: none; 
+    overflow-y: auto;
 }
 
 #infoModal.show {
