@@ -56,6 +56,10 @@ const sortBySelect = document.getElementById("sortBy");
 const sortOrderSelect = document.getElementById("sortOrder");
 const limitSelect = document.getElementById("limitSelect");
 
+if (limitSelect) limitSelect.value = "5"; 
+if (sortBySelect) sortBySelect.value = "filename";    
+if (sortOrderSelect) sortOrderSelect.value = "false";
+
 // Listen to user's items per page
 if (limitSelect) {
     limitSelect.addEventListener("change", (e) => {
