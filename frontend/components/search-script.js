@@ -15,7 +15,7 @@ let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
 
-const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
+const SERVER = new URL(`${window.APP_CONFIG.BASE_URL}`).href;
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {

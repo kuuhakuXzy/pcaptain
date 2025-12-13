@@ -1,0 +1,14 @@
+# config can be overridden using environment variables
+# e.g., BE_PORT to override port number
+
+port: ${BE_INTERNAL_PORT}
+redis:
+  host: redis
+  port: 6379
+  username: null
+  password: null
+public_url: "http://localhost:${BE_BASE_PORT}"
+log_level: INFO
+scan_interval_seconds: 3600
+pcap_mounted_directory: "/app/pcaps"
+pcap_prefix: "/pcaps" # use to replace internal path in backend responses, null to disable

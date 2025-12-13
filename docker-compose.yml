@@ -3,20 +3,25 @@ services:
     image: redis:7-alpine
     container_name: redis
     restart: always
-    ports:
-      - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
-    command: redis-server --port ${REDIS_INTERNAL_PORT}
+    # ports:
+    #   - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
+    command: redis-server --port 6379
     volumes:
       - redis_data:/data
     env_file:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     # network_mode: "host"
 
   backend:
-    image: mika1512/pcap-catalog-service:2.5.0
-    # build: .                        
+    # image: mika1512/pcap-catalog-service:2.5.0
+    build: .
     container_name: backend
     restart: always
     depends_on:
@@ -29,10 +34,15 @@ services:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request, sys, os; url=f'http://localhost:${BE_INTERNAL_PORT}/health'; urllib.request.urlopen(url)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   frontend:
-    image: mika1512/pcap-frontend-app:1.5.0
-    # build: ./frontend
+    # image: mika1512/pcap-frontend-app:1.5.0
+    build: ./frontend
     container_name: frontend
     restart: always
     depends_on:
@@ -43,6 +53,11 @@ services:
       - .env
     networks:
       - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${NGINX_PORT} >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   redis_data:

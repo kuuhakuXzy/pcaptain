@@ -26,38 +26,34 @@ import time
 from concurrent.futures import ThreadPoolExecutor 
 from enum import Enum
 from fastapi import BackgroundTasks
+from config.config import settings
 
 # --- Configuration ---
 load_dotenv()
 
-PCAP_DIRECTORIES_STR = os.getenv("PCAP_MOUNTED_DIRECTORY", "pcaps")
-PCAP_DIRECTORIES = [path.strip() for path in PCAP_DIRECTORIES_STR.split(',')]
+PCAP_DIRECTORIES_STR = settings.PCAP_MOUNTED_DIRECTORY
+PCAP_DIRECTORIES = [PCAP_DIRECTORIES_STR]
+PCAP_PREFIX = settings.PCAP_PREFIX
 
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_INTERNAL_PORT", 6379))
-
-BASE_URL = os.getenv("BE_BASE_URL")
-BASE_PORT = os.getenv("BE_BASE_PORT")
-
-FULL_BASE_URL = None
-if BASE_URL:
-    if not BASE_URL.startswith("http://") and not BASE_URL.startswith("https://"):
-        BASE_URL = f"http://{BASE_URL}" 
-    if BASE_PORT:
-        FULL_BASE_URL = f"{BASE_URL}:{BASE_PORT}"
-    else:
-        FULL_BASE_URL = BASE_URL
+FULL_BASE_URL = settings.PUBLIC_URL
 
 AUTOCOMPLETE_KEY = "pcap:protocols:autocomplete"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
 logger = logging.getLogger(__name__) 
 
 # --- Redis Connection ---
 try:
-    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+    redis_client = redis.Redis(
+        host=settings.REDIS.HOST,
+        port=settings.REDIS.PORT,
+        username=settings.REDIS.USERNAME,
+        password=settings.REDIS.PASSWORD,
+        db=0,
+        decode_responses=True
+    )
     redis_client.ping()
-    logger.info(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+    logger.info(f"Successfully connected to Redis at {settings.REDIS.HOST}:{settings.REDIS.PORT}")
 except redis.exceptions.ConnectionError as e:
     logger.error(f"Could not connect to Redis: {e}")
     redis_client = None
@@ -305,7 +301,7 @@ async def scheduled_scan_loop():
     """Runs in the background and triggers a scan every X seconds."""
     while True:
         try:
-            interval = int(os.getenv("SCAN_INTERVAL_SECONDS", 3600))
+            interval = int(settings.SCAN_INTERVAL_SECONDS)
 
             await asyncio.sleep(interval)
 
@@ -417,6 +413,12 @@ async def search_pcaps(
                 pcap_data["searched_protocol"] = protocol
                 pcap_data["protocol_packet_count"] = packet_count
                 results.append(pcap_data)
+
+        # Replace internal paths with public prefix if set
+        if PCAP_PREFIX:
+            for result in results:
+                result["path"] = result["path"].replace(PCAP_DIRECTORIES_STR, PCAP_PREFIX)
+                result["source_directory"] = result["source_directory"].replace(PCAP_DIRECTORIES_STR, PCAP_PREFIX)
 
         # SORTING LOGIC
         def get_sort_key(item):
