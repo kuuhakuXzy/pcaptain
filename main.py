@@ -11,6 +11,8 @@
 import os
 import subprocess
 import redis
+from redis.commands.search.field import TextField, NumericField
+from redis.commands.search.indexDefinition import IndexDefinition, IndexType
 import json
 import hashlib  
 import re 
@@ -62,6 +64,42 @@ try:
 except redis.exceptions.ConnectionError as e:
     logger.error(f"Could not connect to Redis: {e}")
     redis_client = None
+
+# --- RediSearch Index Initialization ---
+def initialize_search_index():
+    """Initialize RediSearch index if it doesn't exist."""
+    if not redis_client:
+        return False
+    
+    try:
+        # Check if index exists
+        redis_client.ft("pcap_idx").info()
+        logger.info("RediSearch index 'pcap_idx' already exists")
+        return True
+    except:
+        # Create index if it doesn't exist
+        try:
+            schema = (
+                TextField("filename", sortable=True),
+                NumericField("size_bytes", sortable=True),
+                TextField("path", sortable=True),
+                TextField("protocols")
+            )
+            
+            definition = IndexDefinition(
+                prefix=["pcap:file:"],
+                index_type=IndexType.HASH
+            )
+            
+            redis_client.ft("pcap_idx").create_index(
+                schema,
+                definition=definition
+            )
+            logger.info("RediSearch index 'pcap_idx' created successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create RediSearch index: {e}")
+            return False
 
 app = FastAPI(
     title="Pcap Catalog Service",
@@ -158,6 +196,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
     if not redis_client:
         return {"error": "Redis connection is not available."}
 
+    # Ensure search index exists before scanning
+    initialize_search_index()
+
     logger.info(f"Starting scan for directories: {PCAP_DIRECTORIES}")
     files_indexed = 0
 
@@ -243,7 +284,7 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                             "source_directory": pcap_dir,
                             "path": file_path,
                             "size_bytes": file_size, 
-                            "protocols": ",".join(protocols), 
+                            "protocols": " ".join(protocols), # for RediSearch full-text search
                             "protocol_counts": json.dumps(protocol_data), 
                             "protocol_percentages": json.dumps(protocol_percentages),
                             "download_url": download_url,
@@ -349,6 +390,8 @@ async def scheduled_scan_loop():
 # --- API Endpoints ---
 @app.on_event("startup") 
 async def startup_event():
+    initialize_search_index()
+
     @backoff.on_exception(backoff.expo, redis.exceptions.ConnectionError, max_tries=5, factor=0.5)
     async def check_redis_for_pcaps():
         if not redis_client:
@@ -413,6 +456,29 @@ class SortField(str, Enum):
     count = "protocol_packet_count"
     path = "path"
 
+def sort_results(results: List[Dict[str, Any]], sort_by: SortField, descending: bool = False) -> List[Dict[str, Any]]:
+    """
+    Sort search results by the specified field.
+    
+    Args:
+        results: List of result dictionaries to sort
+        sort_by: Field to sort by
+        descending: Sort in descending order if True
+        
+    Returns:
+        Sorted list of results
+    """
+    def get_sort_key(item):
+        val = item.get(sort_by.value)
+        if sort_by in [SortField.size, SortField.count]:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return 0
+        return str(val).lower()
+    
+    return sorted(results, key=get_sort_key, reverse=descending)
+
 @app.get("/search", summary="Search for pcaps containing a specific protocol")
 async def search_pcaps(
     protocol: str = Query(..., description="The protocol name to search for, e.g., sip"),
@@ -452,17 +518,8 @@ async def search_pcaps(
                 pcap_data["protocol_packet_count"] = packet_count
                 results.append(pcap_data)
 
-        # SORTING LOGIC
-        def get_sort_key(item):
-            val = item.get(sort_by.value)
-            if sort_by in [SortField.size, SortField.count]:
-                try:
-                    return int(val)
-                except (ValueError, TypeError):
-                    return 0
-            return str(val).lower()
-
-        results.sort(key=get_sort_key, reverse=descending)
+        # Sort results
+        results = sort_results(results, sort_by, descending)
 
         # PAGINATION LOGIC
         total_items = len(results)
@@ -480,6 +537,79 @@ async def search_pcaps(
     except Exception as e:
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred while querying Redis: {e}")
+
+from redis.commands.search.query import Query as RedisQuery
+
+REDISEARCH_SORTABLE_FIELDS = {
+    SortField.filename: "filename",
+    SortField.size: "size_bytes",
+    SortField.path: "path"
+}
+
+@app.get("/search/ft", summary="Search using RediSearch full-text capabilities")
+async def search_with_redisearch(
+    query: str = Query(..., description="Search query (e.g., 'sip', 'ip', 'http')"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    sort_by: SortField = Query(SortField.filename),
+    descending: bool = Query(False),
+):
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+
+    try:
+        offset = (page - 1) * limit
+
+        q = RedisQuery(f"@protocols:({query}*)") \
+            .paging(offset, limit)
+
+        # Redis-side sorting (only if supported)
+        if sort_by in REDISEARCH_SORTABLE_FIELDS:
+            q = q.sort_by(
+                REDISEARCH_SORTABLE_FIELDS[sort_by],
+                asc=not descending
+            )
+
+        results = await asyncio.to_thread(
+            redis_client.ft("pcap_idx").search,
+            q
+        )
+
+        processed_data = []
+        for doc in results.docs:
+            doc_dict = doc.__dict__
+            counts_str = doc_dict.get("protocol_counts")
+            packet_count = 0
+
+            if counts_str:
+                try:
+                    counts_dict = json.loads(counts_str)
+                    for proto, count in counts_dict.items():
+                        if query.lower() in proto.lower():
+                            packet_count += count
+                except json.JSONDecodeError:
+                    pass
+
+            doc_dict["searched_protocol"] = query
+            doc_dict["protocol_packet_count"] = packet_count
+            processed_data.append(doc_dict)
+
+        # Python-side sort ONLY for derived field
+        if sort_by == SortField.count:
+            processed_data = sort_results(
+                processed_data, sort_by, descending
+            )
+
+        return {
+            "total": results.total,
+            "page": page,
+            "limit": limit,
+            "data": processed_data
+        }
+
+    except Exception as e:
+        logger.error(f"RediSearch query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/protocols/suggest", summary="Get protocol name suggestions for autocomplete")
 async def suggest_protocols(

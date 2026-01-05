@@ -1,11 +1,12 @@
 services:
   redis:
-    image: redis:7-alpine
+    # image: redis:7-alpine
+    image: redis/redis-stack:7.4.0-v8 # with RediSearch module
     container_name: redis
     restart: always
     ports:
       - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
-    command: redis-server --port ${REDIS_INTERNAL_PORT}
+    command: redis-stack-server --port ${REDIS_INTERNAL_PORT}
     volumes:
       - redis_data:/data
     env_file:

@@ -2,6 +2,7 @@
 const API_PATH = Object.freeze({
     PCAP_REINDEX_PATH: "reindex",
     PCAP_SEARCHING_PATH: "search",
+    FUZZY_SEARCH_PATH: "search/ft",
     SERVER_HEALTH_CHECK_PATH: "health",
     SCAN_STATUS_PATH: "scan-status",
     SEARCH_SUGGESTION: "protocols/suggest",

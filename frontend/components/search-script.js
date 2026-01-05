@@ -14,6 +14,7 @@ let currentPage = 1;
 let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
+let useFuzzySearch = false; // Track which search mode to use
 
 const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
 
@@ -38,10 +39,41 @@ function disappearSearchLoadingSpinner() {
     if(searchBtn) searchBtn.style.display = "inline-block";
 }
 
+// Search dropdown toggle
+const searchDropdownBtn = document.getElementById("searchDropdownBtn");
+const searchDropdownMenu = document.getElementById("searchDropdownMenu");
+
+if (searchDropdownBtn) {
+    searchDropdownBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        searchDropdownMenu.classList.toggle("hidden");
+    });
+}
+
+// Close dropdown when clicking outside
+document.addEventListener("click", (e) => {
+    if (searchDropdownMenu && !searchDropdownMenu.contains(e.target) && e.target !== searchDropdownBtn) {
+        searchDropdownMenu.classList.add("hidden");
+    }
+});
+
+// Regular search button
 document.getElementById("searchBtn").addEventListener("click", () => {
+    useFuzzySearch = false;
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
 });
+
+// Fuzzy search button
+const fuzzySearchBtn = document.getElementById("fuzzySearchBtn");
+if (fuzzySearchBtn) {
+    fuzzySearchBtn.addEventListener("click", () => {
+        useFuzzySearch = true;
+        currentPage = 1;
+        searchDropdownMenu.classList.add("hidden");
+        fetchFiles();
+    });
+}
 
 const searchInput = document.getElementById("searchInput");
 searchInput.addEventListener("keypress", (e) => {
@@ -284,17 +316,15 @@ async function fetchFiles() {
     try {
         displaySearchLoadingSpinner();
         
+        // Choose endpoint based on search mode
+        const endpoint = useFuzzySearch ? API_PATH.FUZZY_SEARCH_PATH : API_PATH.PCAP_SEARCHING_PATH;
+        const params = useFuzzySearch 
+            ? { query: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending }
+            : { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
+        
         const apiResponse = await axios.get(
-            SERVER + API_PATH.PCAP_SEARCHING_PATH,
-            {
-                params: {
-                    protocol: search,
-                    page: currentPage,
-                    limit: itemsPerPage,
-                    sort_by: currentSortBy,
-                    descending: currentDescending
-                }
-            }
+            SERVER + endpoint,
+            { params }
         );
 
         disappearSearchLoadingSpinner();
@@ -526,7 +556,8 @@ function openInfoModal(file, event) {
     }
     
     if (file.protocols) {
-        const protos = file.protocols.split(","); 
+        // const protos = file.protocols.split(",");
+        const protos = file.protocols.split(" "); // updated for RediSearch full-text search
         protos.forEach(p => {
             const badge = document.createElement("span");
             badge.className = "proto-badge";
