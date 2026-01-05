@@ -192,6 +192,19 @@ document.getElementById("scanAllBtn").addEventListener("click", async () => {
     await scanFiles();
 });
 
+// Cancel scan button
+document.getElementById("cancelScanBtn").addEventListener("click", async () => {
+    try {
+        const apiResponse = await axios.post(SERVER + API_PATH.CANCEL_SCAN_PATH);
+        if (apiResponse && apiResponse.data) {
+            showToast(TOAST_STATUS.INFO, "Scan cancellation requested");
+        }
+    } catch (err) {
+        console.error("Error cancelling scan:", err);
+        showToast(TOAST_STATUS.ERROR, "Failed to cancel scan");
+    }
+});
+
 const chooseDirBtn = document.getElementById("chooseDirBtn");
 if (chooseDirBtn) {
     chooseDirBtn.addEventListener("click", () => {
@@ -219,12 +232,18 @@ setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 
 async function scanFiles() {
     displayScanLoadingSpinner();
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    
     try {
         const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH);
         if (!apiResponse) {
             disappearScanLoadingSpinner();
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
         }
+        
+        // Show cancel button when scan starts
+        if (cancelBtn) cancelBtn.classList.remove("hidden");
+        
         const timer = setInterval(async () => {
             try {
                 const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
@@ -233,20 +252,24 @@ async function scanFiles() {
                     status === SERVER_SCANNING_FILE_STATUS.IDLE
                 ) {
                     disappearScanLoadingSpinner();
+                    if (cancelBtn) cancelBtn.classList.add("hidden");
                     clearInterval(timer);
                     showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
                 } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                     disappearScanLoadingSpinner();
+                    if (cancelBtn) cancelBtn.classList.add("hidden");
                     clearInterval(timer);
                     showToast(TOAST_STATUS.ERROR, "Scan failed");
                 }
             } catch (err) {
                 disappearScanLoadingSpinner();
+                if (cancelBtn) cancelBtn.classList.add("hidden");
                 clearInterval(timer);
             }
         }, CHECK_SCAN_FILES_STATUS_INTERVAL);
     } catch (err) {
         disappearScanLoadingSpinner();
+        if (cancelBtn) cancelBtn.classList.add("hidden");
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
     }

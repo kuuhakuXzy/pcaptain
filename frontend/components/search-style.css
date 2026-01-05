@@ -407,6 +407,26 @@ thead tr {
     margin: auto;
 }
 
+/* Scan Cancel button */
+
+.scan-cancel-btn {
+    background-color: #e74c3c !important;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.scan-cancel-btn:hover {
+    background-color: #c0392b !important;
+}
+
+.scan-cancel-btn.hidden {
+    display: none;
+}
+
 a:hover {
     color: #ff6600;
     transition: 0.15s;

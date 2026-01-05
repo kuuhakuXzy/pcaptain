@@ -26,6 +26,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor 
 from enum import Enum
 from fastapi import BackgroundTasks
+from threading import Event
 
 # --- Configuration ---
 load_dotenv()
@@ -68,6 +69,7 @@ app = FastAPI(
 )
 
 executor = ThreadPoolExecutor()
+scan_cancel_event = Event()
 
 
 # --- Core Logic ---
@@ -140,8 +142,14 @@ def calculate_protocol_percentages(protocol_counts: Dict[str, int]) -> Dict[str,
     
     return percentages
 
+def check_cancellation(cancel_event: Optional[Event]):
+    """Check if cancellation has been requested and raise CancelledError if so."""
+    if cancel_event and cancel_event.is_set():
+        logger.info("Scan cancelled by user")
+        raise asyncio.CancelledError("Scan cancelled by user")
+
 # --- Indexing Functionality ---
-async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, target_folder: Optional[str] = None) -> dict:
+async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, target_folder: Optional[str] = None, cancel_event: Optional[Event] = None) -> dict:
     seen_hashes = set()
 
     if exclude_files is None:
@@ -155,107 +163,117 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
 
     found_matching_folder = False
 
-    for pcap_dir in PCAP_DIRECTORIES:
-        if not await asyncio.to_thread(os.path.isdir, pcap_dir):
-            logger.warning(f"Directory '{pcap_dir}' does not exist. Skipping.")
-            continue
+    try:
+        for pcap_dir in PCAP_DIRECTORIES:
+            check_cancellation(cancel_event)
+            if not await asyncio.to_thread(os.path.isdir, pcap_dir):
+                logger.warning(f"Directory '{pcap_dir}' does not exist. Skipping.")
+                continue
 
-        for root, dirs, files in await asyncio.to_thread(os.walk, pcap_dir):
-            if target_folder:
-                if os.path.basename(root) != target_folder:
-                    continue
-                found_matching_folder = True
-
-            for filename in files:
-                if filename in exclude_files or not filename.endswith((".pcap", ".pcapng", ".cap")):
-                    continue
-
-                file_path = os.path.join(root, filename)
-
-                file_hash = await calculate_sha256(file_path)
-                if file_hash in seen_hashes:
-                    logger.info(f"Skipping {file_path} (duplicate hash already processed in this scan)")
-                    continue
-                seen_hashes.add(file_hash)
-
-                pcap_key = f"pcap:file:{file_hash}"
-
-                if await asyncio.to_thread(redis_client.exists, pcap_key):
-                    stored_path = await asyncio.to_thread(redis_client.hget, pcap_key, "path")
-                    if stored_path == file_path:
-                        await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
-                        logger.info(f"Skipping {file_path} (already indexed and unchanged)")
-                        continue
-                    elif await asyncio.to_thread(os.path.exists, stored_path): 
-                        logger.info(f"Duplicate file detected at {stored_path} (hash exists at {file_path})")
-                        continue
-                    else:
-                        logger.info(f"File moved. Updating Redis path for {file_path}")
-                        await asyncio.to_thread(redis_client.hset, pcap_key, mapping={
-                            "path": file_path,
-                            "source_directory": os.path.dirname(file_path),
-                            "last_modified": await asyncio.to_thread(os.path.getmtime, file_path)
-                        })
-                        continue
+            for root, dirs, files in await asyncio.to_thread(os.walk, pcap_dir):
+                check_cancellation(cancel_event)
                 
-                logger.info(f"Processing file: {file_path}")
-                protocol_data = await get_protocols_from_pcap(file_path)
+                if target_folder:
+                    if os.path.basename(root) != target_folder:
+                        continue
+                    found_matching_folder = True
 
-                if protocol_data is not None:
-                    if not protocol_data:
-                        logger.warning(f"No protocols found in {filename}. Skipping from index.")
+                for filename in files:
+                    check_cancellation(cancel_event)
+                
+                    if filename in exclude_files or not filename.endswith((".pcap", ".pcapng", ".cap")):
                         continue
 
-                    protocol_percentages = calculate_protocol_percentages(protocol_data)
-
-                    file_size = await asyncio.to_thread(os.path.getsize, file_path)
+                    file_path = os.path.join(root, filename)
 
                     file_hash = await calculate_sha256(file_path)
+                    if file_hash in seen_hashes:
+                        logger.info(f"Skipping {file_path} (duplicate hash already processed in this scan)")
+                        continue
+                    seen_hashes.add(file_hash)
+
                     pcap_key = f"pcap:file:{file_hash}"
 
-                    if not base_url:
-                        base_url = FULL_BASE_URL or None
+                    if await asyncio.to_thread(redis_client.exists, pcap_key):
+                        stored_path = await asyncio.to_thread(redis_client.hget, pcap_key, "path")
+                        if stored_path == file_path:
+                            await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
+                            logger.info(f"Skipping {file_path} (already indexed and unchanged)")
+                            continue
+                        elif await asyncio.to_thread(os.path.exists, stored_path): 
+                            logger.info(f"Duplicate file detected at {stored_path} (hash exists at {file_path})")
+                            continue
+                        else:
+                            logger.info(f"File moved. Updating Redis path for {file_path}")
+                            await asyncio.to_thread(redis_client.hset, pcap_key, mapping={
+                                "path": file_path,
+                                "CancelledErrorsource_directory": os.path.dirname(file_path),
+                                "last_modified": await asyncio.to_thread(os.path.getmtime, file_path)
+                            })
+                            continue
                     
-                    download_url = f"{base_url}/pcaps/download/{file_hash}" if base_url else ""
-                    
-                    protocols = sorted(list(protocol_data.keys()))
+                    logger.info(f"Processing file: {file_path}")
+                    protocol_data = await get_protocols_from_pcap(file_path)
 
-                    current_time = time.time()
+                    if protocol_data is not None:
+                        if not protocol_data:
+                            logger.warning(f"No protocols found in {filename}. Skipping from index.")
+                            continue
 
-                    pipe = redis_client.pipeline()
+                        protocol_percentages = calculate_protocol_percentages(protocol_data)
 
-                    pipe.hset(pcap_key, mapping={
-                        "filename": filename,
-                        "source_directory": pcap_dir,
-                        "path": file_path,
-                        "size_bytes": file_size, 
-                        "protocols": ",".join(protocols), 
-                        "protocol_counts": json.dumps(protocol_data), 
-                        "protocol_percentages": json.dumps(protocol_percentages),
-                        "download_url": download_url,
-                        "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
-                        "last_scanned": current_time,
-                    })
+                        file_size = await asyncio.to_thread(os.path.getsize, file_path)
 
-                    autocomplete_payload = {proto: 0 for proto in protocols}
-                    if autocomplete_payload:
-                        pipe.zadd(AUTOCOMPLETE_KEY, autocomplete_payload)
+                        file_hash = await calculate_sha256(file_path)
+                        pcap_key = f"pcap:file:{file_hash}"
 
-                    for proto in protocols:
-                        index_key = f"pcap:index:protocol:{proto.lower()}"
-                        pipe.sadd(index_key, file_hash)
-                    await asyncio.to_thread(pipe.execute)
+                        if not base_url:
+                            base_url = FULL_BASE_URL or None
+                        
+                        download_url = f"{base_url}/pcaps/download/{file_hash}" if base_url else ""
+                        
+                        protocols = sorted(list(protocol_data.keys()))
 
-                    logger.info(f"Indexed file {filename} (hash: {file_hash}) with protocols: {', '.join(protocols)}")
-                    files_indexed += 1
-                else:
-                    logger.warning(f"Skipping file {filename} from index due to processing error.")
-        if target_folder and not found_matching_folder:
-            logger.warning(f"No folder named '{target_folder}' found under {PCAP_DIRECTORIES}")
-            return {"status": "warning", "message": f"No folder named '{target_folder}' found.", "indexed_files": 0}
+                        current_time = time.time()
 
-    logger.info(f"Indexing successful. Processed {files_indexed} files.")
-    return {"status": "success", "indexed_files": files_indexed}
+                        pipe = redis_client.pipeline()
+
+                        pipe.hset(pcap_key, mapping={
+                            "filename": filename,
+                            "source_directory": pcap_dir,
+                            "path": file_path,
+                            "size_bytes": file_size, 
+                            "protocols": ",".join(protocols), 
+                            "protocol_counts": json.dumps(protocol_data), 
+                            "protocol_percentages": json.dumps(protocol_percentages),
+                            "download_url": download_url,
+                            "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
+                            "last_scanned": current_time,
+                        })
+
+                        autocomplete_payload = {proto: 0 for proto in protocols}
+                        if autocomplete_payload:
+                            pipe.zadd(AUTOCOMPLETE_KEY, autocomplete_payload)
+
+                        for proto in protocols:
+                            index_key = f"pcap:index:protocol:{proto.lower()}"
+                            pipe.sadd(index_key, file_hash)
+                        await asyncio.to_thread(pipe.execute)
+
+                        logger.info(f"Indexed file {filename} (hash: {file_hash}) with protocols: {', '.join(protocols)}")
+                        files_indexed += 1
+                    else:
+                        logger.warning(f"Skipping file {filename} from index due to processing error.")
+            if target_folder and not found_matching_folder:
+                logger.warning(f"No folder named '{target_folder}' found under {PCAP_DIRECTORIES}")
+                return {"status": "warning", "message": f"No folder named '{target_folder}' found.", "indexed_files": 0}
+
+        logger.info(f"Indexing successful. Processed {files_indexed} files.")
+        return {"status": "success", "indexed_files": files_indexed}
+    
+    except asyncio.CancelledError:
+        logger.info(f"Scan cancelled. Indexed {files_indexed} files before cancellation.")
+        return {"status": "cancelled", "indexed_files": files_indexed}
 
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -280,24 +298,30 @@ scan_status: Dict[str, Any] = {
     "message": "Ready"
 }
 
-def scan_wrapper(exclude_files=None, base_url=None):
+def scan_wrapper(exclude_files=None, base_url=None, cancel_event: Optional[Event] = None):
     try:
         scan_status["state"] = ScanState.RUNNING
         scan_status["indexed_files"] = 0
         scan_status["message"] = "Scanning in progress..."
         logger.info("Background scan started.")
 
-        result = asyncio.run(scan_and_index(exclude_files=exclude_files, base_url=base_url))
+        result = asyncio.run(scan_and_index(exclude_files=exclude_files, base_url=base_url, cancel_event=cancel_event))
         scan_status["indexed_files"] = result.get("indexed_files", 0)
-        scan_status["state"] = ScanState.COMPLETED
-        scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
-        logger.info("Background scan completed.")
+        
+        if result.get("status") == "cancelled":
+            scan_status["state"] = ScanState.IDLE
+            scan_status["message"] = f"Scan cancelled. Indexed {scan_status['indexed_files']} files before cancellation."
+            logger.info("Background scan cancelled.")
+        else:
+            scan_status["state"] = ScanState.COMPLETED
+            scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
+            logger.info("Background scan completed.")
     except Exception as e:
         logger.error(f"Scan failed: {e}")
         scan_status["state"] = ScanState.FAILED
         scan_status["message"] = str(e)
     finally:
-        if scan_status["state"] != ScanState.FAILED:
+        if scan_status["state"] != ScanState.FAILED and scan_status["state"] != ScanState.IDLE:
             scan_status["state"] = ScanState.IDLE
 
 # SCAN SCHEDULER
@@ -313,7 +337,7 @@ async def scheduled_scan_loop():
                 logger.info(f"Starting scheduled scan (Interval: {interval}s)...")
                 loop = asyncio.get_running_loop()
                 
-                await loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=None, base_url=FULL_BASE_URL))
+                await loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=None, base_url=FULL_BASE_URL, cancel_event=scan_cancel_event))
             else:
                 logger.info("Scheduled scan skipped: Scanner is currently busy.")
                 
@@ -338,7 +362,7 @@ async def startup_event():
             if not await check_redis_for_pcaps():
                 logger.info("No indexed pcaps found in Redis. Starting initial scan...")
                 loop = asyncio.get_event_loop()
-                loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=None, base_url=FULL_BASE_URL))
+                loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=None, base_url=FULL_BASE_URL, cancel_event=scan_cancel_event))
             else:
                 logger.info(f"Found {len(existing_pcap_keys)} indexed pcaps in Redis. Skipping initial full scan.")
         except Exception as e:
@@ -356,14 +380,24 @@ async def health_check():
 async def reindex_pcaps(request: Request, exclude: Optional[List[str]] = Query(None)):
     if scan_status["state"] == ScanState.RUNNING:
         return JSONResponse(content={"status": "busy", "message": "A scan is already running."}, status_code=409)
+    scan_cancel_event.clear()
     base_url = FULL_BASE_URL or str(request.base_url).rstrip("/")
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=exclude, base_url=base_url))
+    loop.run_in_executor(executor, lambda: scan_wrapper(exclude_files=exclude, base_url=base_url, cancel_event=scan_cancel_event))
     return JSONResponse(content={"status": "started"})
 
 @app.get("/scan-status")
 async def scan_status_endpoint():
     return scan_status
+
+@app.post("/cancel-scan", summary="Cancel the currently running scan")
+async def cancel_scan():
+    if scan_status["state"] != ScanState.RUNNING:
+        return JSONResponse(content={"status": "no_scan", "message": "No scan is currently running."}, status_code=400)
+    
+    scan_cancel_event.set()
+    logger.info("Scan cancellation requested by user")
+    return JSONResponse(content={"status": "cancelling", "message": "Scan cancellation has been triggered."})
 
 @app.post("/reindex/{folder_name}", summary="Reindex a specific folder under PCAP directories")
 async def reindex_specific_folder(folder_name: str, request: Request, exclude: Optional[List[str]] = Query(None)):
