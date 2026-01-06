@@ -10,6 +10,7 @@
 
 import os
 import subprocess
+import threading
 import redis
 import json
 import hashlib  
@@ -156,6 +157,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
     found_matching_folder = False
 
     for pcap_dir in PCAP_DIRECTORIES:
+        if scan_cancel_event.is_set():    #cancellation when indexing
+            return {"status": "cancelled", "indexed_files": files_indexed}
+
         if not await asyncio.to_thread(os.path.isdir, pcap_dir):
             logger.warning(f"Directory '{pcap_dir}' does not exist. Skipping.")
             continue
@@ -167,6 +171,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                 found_matching_folder = True
 
             for filename in files:
+                if scan_cancel_event.is_set():  #cancel scan during the loop
+                    return {"status":"cancelled", "indexed_files":files_indexed}
+
                 if filename in exclude_files or not filename.endswith((".pcap", ".pcapng", ".cap")):
                     continue
 
@@ -273,6 +280,9 @@ class ScanState(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"  #cancellation status
+
+scan_cancel_event = threading.Event() #monitor cancellation
 
 scan_status: Dict[str, Any] = {
     "state": ScanState.IDLE,
@@ -282,6 +292,9 @@ scan_status: Dict[str, Any] = {
 
 def scan_wrapper(exclude_files=None, base_url=None):
     try:
+
+        scan_cancel_event.clear()   #no cancellationh yet
+
         scan_status["state"] = ScanState.RUNNING
         scan_status["indexed_files"] = 0
         scan_status["message"] = "Scanning in progress..."
@@ -289,9 +302,15 @@ def scan_wrapper(exclude_files=None, base_url=None):
 
         result = asyncio.run(scan_and_index(exclude_files=exclude_files, base_url=base_url))
         scan_status["indexed_files"] = result.get("indexed_files", 0)
-        scan_status["state"] = ScanState.COMPLETED
-        scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
-        logger.info("Background scan completed.")
+
+        if scan_cancel_event.is_set():      #cancellation triggered by user
+            scan_status["state"] = ScanState.CANCELLED
+            scan_status["message"] = "Scan cancelled by User."
+        else:
+            scan_status["state"] = ScanState.COMPLETED
+            scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
+            logger.info("Background scan completed.")
+
     except Exception as e:
         logger.error(f"Scan failed: {e}")
         scan_status["state"] = ScanState.FAILED
@@ -552,3 +571,16 @@ async def download_filtered_pcap(
         media_type='application/vnd.tcpdump.pcap', 
         filename=f"subset_{protocol}_{original_filename}"
     )
+
+@app.post("/scan-cancel", summary="Cancel the current scan")   
+async def cancel_scan():
+    """To flag the event of scan cancellation and do not kill the thread """
+
+    if scan_status["state"] != ScanState.RUNNING:
+        raise HTTPException(status_code=409, detail="No scan is running to be cancelled")
+
+    scan_cancel_event.set()
+    scan_status["state"] = ScanState.CANCELLED
+    scan_status["message"] = "Scan cancelled by user"
+    return {"status": "cancelled"}
+    

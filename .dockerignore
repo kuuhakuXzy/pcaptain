@@ -1,7 +1,5 @@
 # PCAP directory
 pcaps/
-
-# ENV file
-.env
-
+.gitignore
+.git
 AGENTS.md
