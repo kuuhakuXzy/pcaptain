@@ -14,6 +14,10 @@ COPY components/toast-index.html /usr/share/nginx/html/
 COPY components/toast-style.css /usr/share/nginx/html/
 COPY components/toast-script.js /usr/share/nginx/html/
 
+COPY components/config-modal.html /usr/share/nginx/html/
+COPY components/config-modal-style.css /usr/share/nginx/html/
+COPY components/config-modal-script.js /usr/share/nginx/html/
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

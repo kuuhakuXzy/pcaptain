@@ -6,10 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="search-style.css">
     <link rel="stylesheet" href="toast-style.css">
+    <link rel="stylesheet" href="config-modal-style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <title>PCAP Searching</title>
     <!-- Axios CDN -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        fetch('config-modal.html')
+            .then(response => response.text())
+            .then(html => {
+                const container = document.querySelector('.container');
+                container.insertAdjacentHTML('beforeend', html);
+
+                document.dispatchEvent(new Event("dynamic-dom-ready"));
+            });
+    </script>
 </head>
 
 <body>
@@ -23,7 +34,9 @@
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn" disabled>Cancel</button>
-
+            <button id="configBtn" class="config-btn" title="Settings">
+                <i class="fa fa-cog"></i>
+            </button>
         </div>
 
         <!-- Status signal -->
@@ -67,7 +80,8 @@
                     <tr>
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
-                        <th>Path</th>
+                        <th>Path <i class="fa fa-copy" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
                         
@@ -137,13 +151,13 @@
             </div>
         </div>
 
-
     </div>
 
     <script src="config.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
     <script type="module" src="search-script.js"></script>
+    <script type="module" src="config-modal-script.js"></script>
 </body>
 
 </html>

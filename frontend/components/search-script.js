@@ -3,6 +3,7 @@ import {
     API_PATH,
     CHECK_SCAN_FILES_STATUS_INTERVAL,
     MIN_QUERY_LENGTH,
+    SERVER,
     SERVER_HEALTH_CHECK_INTERVAL,
     SERVER_SCANNING_FILE_STATUS,
     TOAST_STATUS
@@ -14,9 +15,9 @@ let currentPage = 1;
 let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
-let scanStatusTimer = null;
-
-const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
+let currentFiles = []; // Store current page's files for copy functionality
+let scan_state = false; // Track whether scanning is active
+let scanStatusTimer = null; // Store the interval timer
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {
@@ -74,7 +75,7 @@ function startScanStatusPolling() {
 document.getElementById("searchBtn").addEventListener("click", () => {
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
-});
+})
 
 const searchInput = document.getElementById("searchInput");
 searchInput.addEventListener("keypress", (e) => {
@@ -270,6 +271,51 @@ async function serverHealthCheck() {
 serverHealthCheck();
 setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 
+// --- SCAN STATE MANAGEMENT ---
+function manageScanState() {
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    
+    if (scan_state) {
+        // Start interval polling if not already running
+        if (!scanStatusTimer) {
+            scanStatusTimer = setInterval(async () => {
+                try {
+                    const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+                    const status = apiResponse.data.state;
+                    
+                    if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                        status === SERVER_SCANNING_FILE_STATUS.IDLE
+                    ) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                    } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.ERROR, "Scan failed");
+                    }
+                } catch (err) {
+                    console.error("Error checking scan status:", err);
+                    scan_state = false;
+                    manageScanState(); // This will clear the interval
+                    disappearScanLoadingSpinner();
+                    if (cancelBtn) cancelBtn.classList.add("hidden");
+                }
+            }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+        }
+    } else {
+        // Stop interval polling
+        if (scanStatusTimer) {
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+    }
+}
+
 async function scanFiles() {
     displayScanLoadingSpinner();
 
@@ -310,6 +356,7 @@ async function scanFiles() {
         }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
+        if (cancelBtn) cancelBtn.classList.add("hidden");
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
     }
@@ -341,17 +388,11 @@ async function fetchFiles() {
     try {
         displaySearchLoadingSpinner();
         
+        const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
+        
         const apiResponse = await axios.get(
             SERVER + API_PATH.PCAP_SEARCHING_PATH,
-            {
-                params: {
-                    protocol: search,
-                    page: currentPage,
-                    limit: itemsPerPage,
-                    sort_by: currentSortBy,
-                    descending: currentDescending
-                }
-            }
+            { params }
         );
 
         disappearSearchLoadingSpinner();
@@ -365,6 +406,8 @@ async function fetchFiles() {
         const responseData = apiResponse.data;
         const files = responseData.data; 
         const totalItems = responseData.total;
+
+        currentFiles = files; // Store current files for copy functionality
 
         renderTable(files);
         updatePaginationControls(totalItems);
@@ -497,12 +540,86 @@ function formatDate(timestamp) {
     return date.toLocaleString(); 
 }
 
+// --- NAMED EVENT HANDLERS ---
+function handleInfoButtonClick(e) {
+    e.stopPropagation();
+    const index = e.target.id.split('-')[1];
+    const file = currentFiles[index];
+    openInfoModal(file, e);
+}
+
+function handleCopyAllPaths() {
+    const paths = currentFiles.map(file => file.path).join('\n');
+    navigator.clipboard.writeText(paths).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "All paths copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy paths");
+    });
+}
+
+function handleCopyPathClick(e) {
+    if (!e.target.classList.contains('copy-path-btn')) return;
+    e.stopPropagation();
+    const path = e.target.getAttribute('data-path');
+    navigator.clipboard.writeText(path).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "Path copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy path");
+    });
+}
+
+
+// --- ATTACH STATIC LISTENERS ONCE ---
+document.addEventListener("DOMContentLoaded", () => {
+    const copyAllBtn = document.getElementById("copyAllPathsBtn");
+    if (copyAllBtn) {
+        copyAllBtn.addEventListener("click", handleCopyAllPaths);
+    }
+    // When DOM is ready, check current scan state and update UI
+    checkScanStateOnReady();
+});
+
+async function checkScanStateOnReady() {
+    try {
+        const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+        if (!apiResponse || !apiResponse.data) return;
+        const state = apiResponse.data.state;
+
+        const spinner = document.getElementById("spinnerScanBtn");
+        const scanBtn = document.getElementById("scanBtn");
+        const cancelBtn = document.getElementById("cancelScanBtn");
+
+        if (state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
+            if (spinner) {
+                spinner.classList.remove("spinner-scan-hidden");
+                spinner.classList.add("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "none";
+            if (cancelBtn) cancelBtn.classList.remove("hidden");
+            
+            // Set scan_state and start interval polling
+            scan_state = true;
+            manageScanState();
+        } else {
+            if (spinner) {
+                spinner.classList.add("spinner-scan-hidden");
+                spinner.classList.remove("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "inline-block";
+            if (cancelBtn) cancelBtn.classList.add("hidden");
+        }
+    } catch (err) {
+        console.error("Failed to fetch scan state:", err);
+    }
+}
+
+
 function renderTable(files) {
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = '';
 
     if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No result found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No result found</td></tr>';
         return;
     }
 
@@ -521,23 +638,47 @@ function renderTable(files) {
             <td data-label="Info"> 
                 <button id="${btnId}" class="info-btn" title="View Details">i</button>
             </td>
-            <td data-label="Path">${file.path}</td>
+            <td data-label="Path">
+                ${file.path} 
+                <i class="fa fa-copy copy-path-btn" data-path="${file.path}" title="Copy path"></i>
+            </td>
+            <td data-label="Matched">
+                ${renderMatchedHTML(file)}
+            </td>
             <td data-label="Size">${formatFileSize(file.size_bytes)}</td>
             <td data-label="Packet">${file.protocol_packet_count}</td>
             
         `;
         tbody.appendChild(tr);
 
-        setTimeout(() => {
-            const btn = document.getElementById(btnId);
-            if(btn){
-                btn.addEventListener("click", (e) => {
-                    e.stopPropagation(); 
-                    openInfoModal(file, e);
-                });
-            }
-        }, 0);
+        // Attach listener to info button immediately (no setTimeout needed)
+        const btn = tr.querySelector(`#${btnId}`);
+        if (btn) {
+            btn.addEventListener("click", handleInfoButtonClick);
+        }
     });
+
+    // Use event delegation for dynamic copy buttons (attached once to tbody)
+    tbody.addEventListener('click', handleCopyPathClick);
+}
+
+// Render matched protocols: show first two, and a (+N) hover tooltip for the rest
+function renderMatchedHTML(file) {
+    const matched = file.matched_protocols || [];
+    if (!matched.length) return '-';
+
+    const visibleCount = 1;
+    const visible = matched
+        .slice(0, visibleCount)
+        .map(p => `<span class="proto-badge" title="Matched protocol">${p.toUpperCase()}</span>`)
+        .join(' ');
+
+    if (matched.length <= visibleCount) return visible;
+
+    const remaining = matched.length - visibleCount;
+    const remainingList = matched.map(p => p.toUpperCase()).join(', ').replace(/"/g, '&quot;');
+    const moreHtml = `<span class="more-matched" title="${remainingList}">(+${remaining})</span>`;
+    return `${visible} ${moreHtml}`;
 }
 
 
@@ -583,7 +724,8 @@ function openInfoModal(file, event) {
     }
     
     if (file.protocols) {
-        const protos = file.protocols.split(","); 
+        // const protos = file.protocols.split(",");
+        const protos = file.protocols.split(" "); // updated for RediSearch full-text search
         protos.forEach(p => {
             const badge = document.createElement("span");
             badge.className = "proto-badge";

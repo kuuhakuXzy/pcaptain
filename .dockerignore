@@ -1,5 +1,12 @@
 # PCAP directory
 pcaps/
-.gitignore
-.git
+
 AGENTS.md
+
+# git
+.git
+.gitignore
+
+venv/
+__pycache__/
+*.pyc

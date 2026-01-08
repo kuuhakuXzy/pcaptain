@@ -2,9 +2,11 @@
 const API_PATH = Object.freeze({
     PCAP_REINDEX_PATH: "reindex",
     PCAP_SEARCHING_PATH: "search",
+    FUZZY_SEARCH_PATH: "search/ft",
     SERVER_HEALTH_CHECK_PATH: "health",
     SCAN_STATUS_PATH: "scan-status",
     SEARCH_SUGGESTION: "protocols/suggest",
+    EXCLUDED_PROTOCOLS_PATH: "excluded-protocols",
     SCAN_CANCEL_PATH: "scan-cancel"
 });
 
@@ -27,10 +29,13 @@ const SERVER_HEALTH_CHECK_INTERVAL = 20000; // millisecond
 const CHECK_SCAN_FILES_STATUS_INTERVAL = 2000; // millisecond
 const MIN_QUERY_LENGTH = 1;
 
+const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
+
 export {
     API_PATH,
     CHECK_SCAN_FILES_STATUS_INTERVAL,
     MIN_QUERY_LENGTH,
+    SERVER,
     SERVER_HEALTH_CHECK_INTERVAL,
     SERVER_SCANNING_FILE_STATUS,
     TOAST_STATUS
