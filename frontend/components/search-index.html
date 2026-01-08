@@ -7,19 +7,24 @@
     <link rel="stylesheet" href="search-style.css">
     <link rel="stylesheet" href="toast-style.css">
     <link rel="stylesheet" href="config-modal-style.css">
+    <link rel="stylesheet" href="info-modal-style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <title>PCAP Searching</title>
     <!-- Axios CDN -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script>
-        fetch('config-modal.html')
-            .then(response => response.text())
-            .then(html => {
-                const container = document.querySelector('.container');
-                container.insertAdjacentHTML('beforeend', html);
-
-                document.dispatchEvent(new Event("dynamic-dom-ready"));
-            });
+        Promise.all([
+            fetch('config-modal.html').then(r => r.text()),
+            fetch('info-modal.html').then(r => r.text())
+        ])
+        .then(([configHtml, infoHtml]) => {
+            const container = document.querySelector('.container');
+            container.insertAdjacentHTML('beforeend', configHtml + infoHtml);
+            document.dispatchEvent(new Event("dynamic-dom-ready"));
+        })
+        .catch(err => {
+            console.error('Failed to load dynamic fragments', err);
+        });
     </script>
 </head>
 
@@ -106,48 +111,6 @@
                     <input type="file" id="directoryPicker" webkitdirectory multiple hidden>
                 </div>
                 <button id="closeModalBtn" class="close-btn">Close</button>
-            </div>
-        </div>
-
-        
-        <div id="infoModal" class="modal hidden">
-            <div class="modal-content info-modal-content">
-                <!-- <div class="modal-header">
-                    <h2>File Details</h2>
-                    <span id="closeInfoModal" class="close-btn">&times;</span>
-                </div> -->
-                
-                <div class="modal-body">
-                    <div class="info-row">
-                        <strong>Filename:</strong> <span id="infoFilename"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Full Path:</strong> <span id="infoPath"></span>
-                    </div>
-                    
-                    <hr class="info-divider">
-
-                    <div class="info-row">
-                        <strong>Size:</strong> <span id="infoSize"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Packet Count:</strong>  <span id="infoPackets"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Last Modified:</strong> <span id="infoModified"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Last Scanned:</strong> <span id="infoScanned"></span>
-                    </div>
-
-                    <hr class="info-divider">
-
-                    <div class="info-row">
-                        <strong>Protocols Found:</strong>
-                        <div id="infoProtocols" class="protocol-badges">
-                            </div>
-                    </div>
-                </div>
             </div>
         </div>
 

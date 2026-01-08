@@ -1,0 +1,157 @@
+/* --- Info Modal Styling (extracted) --- */
+#infoModal {
+    position: absolute; 
+    z-index: 1000;
+    width: 400px;
+    height: auto;
+    min-height: 400px;
+    max-height: 80vh; 
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    border: 1px solid #dcdcdc;
+    display: none; 
+    overflow-y: auto;
+}
+
+#infoModal.show {
+    display: block;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.info-modal-content {
+    padding: 0;
+    background: transparent;
+    box-shadow: none; 
+    border: none;
+    width: 100%;
+}
+
+.modal-header {
+    background-color: #fff; 
+    padding: 8px 15px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    font-size: 16px;
+    margin: 0;
+    color: #0060A9;
+}
+
+.modal-body {
+    padding: 15px;
+    font-size: 13px; 
+    color: #333;
+}
+
+.info-row {
+    margin-bottom: 15px;
+    word-break: break-all; 
+}
+
+.info-divider {
+    border: 0;
+    border-top: 1px solid #eee;
+    margin: 10px 0;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    background: #fafafa;
+    padding: 8px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.protocol-table-wrapper {
+    margin-top: 10px;
+    overflow-x: auto;
+}
+
+.protocol-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.protocol-table thead {
+    background-color: #f5f5f5;
+}
+
+.protocol-table th {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 2px solid #ddd;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.protocol-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.protocol-table th.sortable:hover {
+    background-color: #e8e8e8;
+}
+
+.protocol-table th.sortable i {
+    margin-left: 5px;
+    color: #666;
+    font-size: 11px;
+}
+
+.protocol-table th:last-child {
+    text-align: center;
+}
+
+.protocol-table td {
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.protocol-table td:last-child {
+    text-align: center;
+}
+
+.protocol-table tbody tr:hover {
+    background-color: #f9f9f9;
+}
+
+.download-protocol-btn {
+    background: none;
+    border: 1px solid #0060A9;
+    color: #0060A9;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 12px;
+}
+
+.download-protocol-btn:hover {
+    background-color: #0060A9;
+    color: white;
+}
+
+.download-protocol-btn i {
+    pointer-events: none;
+}
+
+/* Mobile Fix for the new Column */
+@media (max-width: 600px) {
+    .info-btn { margin: 0; }
+}

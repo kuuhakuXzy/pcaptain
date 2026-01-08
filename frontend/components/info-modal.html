@@ -1,0 +1,54 @@
+<div id="infoModal" class="modal hidden">
+    <div class="modal-content info-modal-content">
+        <div class="modal-body">
+            <div class="info-row">
+                <strong>Filename:</strong> <span id="infoFilename"></span>
+            </div>
+            <div class="info-row">
+                <strong>Full Path:</strong> <span id="infoPath"></span>
+            </div>
+            
+            <hr class="info-divider">
+
+            <div class="info-row">
+                <strong>Size:</strong> <span id="infoSize"></span>
+            </div>
+            <div class="info-row">
+                <strong>Packet Count:</strong>  <span id="infoPackets"></span>
+            </div>
+            <div class="info-row">
+                <strong>Last Modified:</strong> <span id="infoModified"></span>
+            </div>
+            <div class="info-row">
+                <strong>Last Scanned:</strong> <span id="infoScanned"></span>
+            </div>
+
+            <hr class="info-divider">
+
+            <div class="info-row">
+                <strong>Protocols Found:</strong>
+                <div class="protocol-table-wrapper">
+                    <table id="protocolTable" class="protocol-table">
+                        <thead>
+                            <tr>
+                                <th class="sortable" data-sort="protocol" title="Click to sort by protocol">
+                                    Protocol <i class="fa fa-sort"></i>
+                                </th>
+                                <th class="sortable" data-sort="percent" title="Click to sort by percent">
+                                    Percent (%) <i class="fa fa-sort"></i>
+                                </th>
+                                <th class="sortable" data-sort="count" title="Click to sort by count">
+                                    Count <i class="fa fa-sort"></i>
+                                </th>
+                                <th>Download</th>
+                            </tr>
+                        </thead>
+                        <tbody id="protocolTableBody">
+                            <!-- Dynamic content -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

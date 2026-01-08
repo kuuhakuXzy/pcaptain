@@ -8,6 +8,7 @@ import {
     SERVER_SCANNING_FILE_STATUS,
     TOAST_STATUS
 } from "./constant.js";
+import { openInfoModal } from "./info-modal.js";
 
 
 // --- STATE MANAGEMENT ---
@@ -604,91 +605,6 @@ function renderMatchedHTML(file) {
     return `${visible} ${moreHtml}`;
 }
 
-
-window.addEventListener("click", (e) => {
-    const modal = document.getElementById("infoModal");
-    
-    if (modal.classList.contains("show") && !modal.contains(e.target)) {
-        modal.classList.remove("show");
-    }
-});
-
-// Pop up modal for each pcap file
-function openInfoModal(file, event) {
-    const modal = document.getElementById("infoModal");
-    const btn = event.currentTarget;
-
-    document.getElementById("infoFilename").innerText = file.filename || "N/A";
-    document.getElementById("infoPath").innerText = file.path || "N/A";
-    document.getElementById("infoSize").innerText = formatFileSize(file.size_bytes);
-    document.getElementById("infoPackets").innerText = file.protocol_packet_count || 0;
-
-    document.getElementById("infoModified").innerText = formatDate(file.last_modified);
-    document.getElementById("infoScanned").innerText = formatDate(file.last_scanned);
-
-    // Fill all protocols
-    const protoContainer = document.getElementById("infoProtocols");
-    protoContainer.innerHTML = "";
-
-    let percentMap = {};
-
-    if (file.protocol_percentages) {
-
-        try {
-
-            percentMap = JSON.parse(file.protocol_percentages);
-
-        } catch (e) {
-
-            console.error("Error parsing percentages:", e);
-
-        }
-
-    }
-    
-    if (file.protocols) {
-        // const protos = file.protocols.split(",");
-        const protos = file.protocols.split(" "); // updated for RediSearch full-text search
-        protos.forEach(p => {
-            const badge = document.createElement("span");
-            badge.className = "proto-badge";
-            
-            const pct = percentMap[p] || 0;
-            badge.innerText = `${p.toUpperCase()} (${pct}%)`;
-            
-            badge.style.cursor = "pointer";
-            badge.title = `Click to download only ${p.toUpperCase()} packets`;
-
-            badge.addEventListener("click", async (e) => {
-                e.stopPropagation(); 
-                
-                showToast(TOAST_STATUS.INFO, `Preparing download for ${p.toUpperCase()}...`);
-                
-                const fileHash = file.download_url.split("/").pop(); 
-                const downloadUrl = `${SERVER}pcaps/download/${fileHash}/filter?protocol=${p}`;
-                
-                window.location.href = downloadUrl;
-            });
-
-            protoContainer.appendChild(badge);
-        });
-    }
-
-    // Locate the modal next to the button
-    const rect = btn.getBoundingClientRect();
-    
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
-
-    modal.classList.remove("hidden"); 
-    modal.classList.add("show");
-    
-    let left = (rect.right + scrollLeft) + 10; 
-    let top = (rect.top + scrollTop) - 20;
-
-    modal.style.left = `${left}px`;
-    modal.style.top = `${top}px`;
-}
 
 function formatFileSize(bytes) {
     bytes = parseInt(bytes);
