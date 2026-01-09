@@ -1,6 +1,7 @@
 from enum import Enum
 import json
 import os
+import threading
 from typing import Any, Dict, Optional, List
 from threading import Event
 import hashlib
@@ -52,44 +53,6 @@ async def calculate_sha256(file_path: str) -> str:
     return await asyncio.to_thread(calculate_sha256_sync, file_path)
 
 
-def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
-    command = ["tshark", "-r", pcap_file, "-T", "fields", "-e", "frame.protocols"]
-
-    try:
-        result = subprocess.run(command, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            logger.error(f"tshark exited with error for {pcap_file}: {result.stderr}")
-            return None
-
-        output = result.stdout.strip()
-        if not output:
-            return {}
-
-        protocol_counts: Dict[str, int] = {}
-
-        for line in output.splitlines():
-            protocols = line.split(":")
-
-            unique_protocols = set(protocols)
-
-            for proto in unique_protocols:
-                protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
-
-        return protocol_counts
-
-    except FileNotFoundError:
-        logger.error("tshark not found — please install it.")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error while analyzing {pcap_file}: {e}")
-        return None
-
-
-async def get_protocols_from_pcap(pcap_file: str) -> Optional[Dict[str, int]]:
-    return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file)
-
-
 def calculate_protocol_percentages(protocol_counts: Dict[str, int]) -> Dict[str, float]:
     """
     Calculates the presence percentage of each protocol relative to the total file.
@@ -136,6 +99,7 @@ class ScanService:
         "message": "Ready",
     }
     scan_cancel_event = Event()
+    scan_process: Dict[str, Optional[subprocess.Popen]] = {"tshark": None}
 
     @with_app_context
     async def scan_and_index(
@@ -236,7 +200,7 @@ class ScanService:
                                 continue
 
                         logger.info(f"Processing file: {file_path}")
-                        protocol_data = await get_protocols_from_pcap(file_path)
+                        protocol_data = await self.get_protocols_from_pcap(file_path)
 
                         if protocol_data is not None:
                             if not protocol_data:
@@ -417,6 +381,93 @@ class ScanService:
                 redis.delete(REBUILD_LOCK)
 
         threading.Thread(target=worker, daemon=True).start()
+    
+    def get_protocols_from_pcap_sync(self, pcap_file: str) -> Optional[Dict[str, int]]:
+        scan_cancel_event = self.scan_cancel_event
+        scan_process = self.scan_process
+        command = [
+            'tshark', '-r', pcap_file,
+            '-T', 'fields',
+            '-e', 'frame.protocols'
+        ]
+
+        try:
+            
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            scan_process["tshark"] = process
+
+            stdout_lines: List[str] = []
+            stderr_lines: List[str] = []
+
+            def read_stream(stream, sink):
+                for line in iter(stream.readline, ''):
+                    sink.append(line)
+                stream.close()
+
+            stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines), daemon=True)
+            stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines), daemon=True)
+            stdout_thread.start()
+            stderr_thread.start()
+
+            while process.poll() is None:
+                if scan_cancel_event.is_set():
+                    logger.info(f"Scan cancellation requested. Terminating tshark for {pcap_file}.")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    break
+                time.sleep(0.1)
+
+            process.wait()
+            stdout_thread.join()
+            stderr_thread.join()
+
+            if scan_cancel_event.is_set():
+                return None
+
+            if process.returncode != 0:
+                stderr = "".join(stderr_lines).strip()
+                logger.error(f"tshark exited with error for {pcap_file}: {stderr}")
+                return None
+
+            output = "".join(stdout_lines).strip()
+
+            if not output:
+                return {} 
+
+            protocol_counts: Dict[str, int] = {}
+
+            for line in output.splitlines():
+                protocols = line.split(":")
+
+                unique_protocols = set(protocols)
+
+                for proto in unique_protocols:
+                    protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
+
+            return protocol_counts
+
+        except FileNotFoundError:
+            logger.error("tshark not found — please install it.")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error while analyzing {pcap_file}: {e}")
+            return None
+        finally:
+            scan_process["tshark"] = None
+
+
+    async def get_protocols_from_pcap(self, pcap_file: str) -> Optional[Dict[str, int]]:
+        return await asyncio.to_thread(self.get_protocols_from_pcap_sync, pcap_file)
+
+
 
 @with_app_context
 def get_scan_service(*, context: AppContext = None) -> ScanService:
