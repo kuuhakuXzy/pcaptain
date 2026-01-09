@@ -4,9 +4,6 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 import asyncio
 import json
 
-from rapidfuzz.distance import DamerauLevenshtein
-from rapidfuzz.fuzz import partial_ratio
-
 from services.context import get_app_context, AppContext
 from services.logger import get_logger
 from services.scan import (
@@ -20,6 +17,7 @@ from services.scan import (
     TMP_RESULT_PREFIX,
     get_all_protocols
 )
+from utils.protocols_utils import rank_protocols
 from uuid import uuid4
 
 
@@ -41,27 +39,55 @@ SORT_FIELD_TO_INDEX = {
     SortField.count: SORT_INDEX_PACKET_COUNT,
 }
 
-
-def protocol_distance(query: str, candidate: str) -> float:
+def resolve_protocols(
+    query: str,
+    candidates: list[str],
+    *,
+    min_prefix_len: int = 3,
+    max_contains_matches: int = 5,
+    max_prefix_matches: int = 3,
+    max_fuzzy: int = 10,
+) -> list[str]:
     q = query.lower()
-    c = candidate.lower()
 
-    edit = DamerauLevenshtein.normalized_distance(q, c)
+    exact = []
+    contains = []
+    prefix = []
 
-    # Prefix similarity (helps "ipv" → "ipv6")
-    prefix = 1 - (partial_ratio(q, c) / 100)
+    for p in candidates:
+        pl = p.lower()
 
-    return 0.7 * edit + 0.3 * prefix
+        if pl == q:
+            exact.append(p)
+            continue
 
-def rank_protocols(query, candidates, max_dist=0.5):
-    scored = [
-        (p, protocol_distance(query, p))
-        for p in candidates
-    ]
-    return [
-        p for p, d in sorted(scored, key=lambda x: x[1])
-        if d <= max_dist
-    ]
+        if q in pl:
+            contains.append(p)
+            continue
+
+        if pl.startswith(q):
+            prefix.append(p)
+
+    if exact:
+        return exact
+
+    if (
+        len(q) >= min_prefix_len
+        and contains
+        and len(contains) <= max_contains_matches
+    ):
+        return contains
+
+    if (
+        len(q) >= min_prefix_len
+        and prefix
+        and len(prefix) <= max_prefix_matches
+    ):
+        return prefix
+
+    fuzzy = rank_protocols(q, candidates, max_dist=0.5)
+    return fuzzy[:max_fuzzy]
+
 
 @router.get("/search", summary="Search for pcaps containing a specific protocol")
 async def fuzzy_search_pcaps(
@@ -86,7 +112,7 @@ async def fuzzy_search_pcaps(
         if p.lower() not in excluded
     ]
 
-    protocols = rank_protocols(protocol, candidates)
+    protocols = resolve_protocols(protocol, candidates)
     if not protocols:
         return {"total": 0, "page": page, "limit": limit, "data": []}
 

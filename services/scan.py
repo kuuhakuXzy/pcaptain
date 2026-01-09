@@ -7,6 +7,7 @@ import hashlib
 import asyncio
 import subprocess
 import time
+import threading
 
 from redis import Redis
 
@@ -28,20 +29,15 @@ SORT_INDEX_PATH = f"{SORT_INDEX_PREFIX}:path"
 SORT_INDEX_SIZE = f"{SORT_INDEX_PREFIX}:size_bytes"
 SORT_INDEX_PACKET_COUNT = f"{SORT_INDEX_PREFIX}:protocol_packet_count"
 
+LEX_INDEX_FILENAME = "pcap:lex:filename"
+LEX_INDEX_PATH = "pcap:lex:path"
+
+REBUILD_LOCK = "pcap:lex:rebuild:lock"
+REBUILD_DIRTY = "pcap:lex:dirty"
+
 # Temporary keys
 TMP_RESULT_PREFIX = "pcap:tmp:search"
 TMP_KEY_TTL_SECONDS = 5
-
-
-def lex_score(s: str, max_len=8) -> float:
-    s = s.lower().encode("utf-8")[:max_len]
-    score = 0.0
-    factor = 1.0
-
-    for b in s:
-        factor /= 256.0
-        score += b * factor
-    return score
 
 
 def calculate_sha256_sync(file_path: str) -> str:
@@ -271,6 +267,8 @@ class ScanService:
 
                             protocols = sorted(list(protocol_data.keys()))
                             protocol_packet_count = sum(protocol_data.values())
+                            filename_norm = filename.lower()
+                            path_norm = file_path.lower()
 
                             current_time = time.time()
 
@@ -280,8 +278,10 @@ class ScanService:
                                 pcap_key,
                                 mapping={
                                     "filename": filename,
+                                    "filename_sort": filename_norm,
                                     "source_directory": pcap_dir,
                                     "path": file_path,
+                                    "path_sort": path_norm,
                                     "size_bytes": file_size,
                                     "protocols": " ".join(protocols),
                                     "protocol_packet_count": protocol_packet_count,
@@ -304,24 +304,19 @@ class ScanService:
                             for proto in protocols:
                                 index_key = f"{PROTOCOCOL_INDEX_PREFIX}:{proto.lower()}"
                                 pipe.sadd(index_key, file_hash)
+                            
+                            # ---- LEXICOGRAPHICAL INDEXES ----
+                            pipe.zadd(LEX_INDEX_FILENAME, {filename_norm: 0}, nx=True)
+                            pipe.zadd(LEX_INDEX_PATH, {path_norm: 0}, nx=True)
 
                             # ---- SORT INDEXES ----
                             # Numeric sort (true score)
                             pipe.zadd(SORT_INDEX_SIZE, {file_hash: file_size})
 
-                            pipe.zadd(
-                                SORT_INDEX_PACKET_COUNT,
-                                {file_hash: protocol_packet_count},
-                            )
+                            pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: protocol_packet_count})
 
-                            # Lexicographic sorts (encode value into member)
-                            pipe.zadd(
-                                SORT_INDEX_FILENAME, {file_hash: lex_score(filename)}
-                            )
-
-                            pipe.zadd(
-                                SORT_INDEX_PATH, {file_hash: lex_score(file_path)}
-                            )
+                            pipe.zadd(SORT_INDEX_FILENAME, {file_hash: 0}) # placeholder
+                            pipe.zadd(SORT_INDEX_PATH, {file_hash: 0})
 
                             await asyncio.to_thread(pipe.execute)
 
@@ -352,8 +347,17 @@ class ScanService:
             )
             return {"status": "cancelled", "indexed_files": files_indexed}
 
-    def scan_wrapper(self, exclude_files=None, base_url=None):
+    @with_app_context
+    def scan_wrapper(self, exclude_files=None, base_url=None, *, context: AppContext = None):
+        redis = context.redis_client
+        if not redis:
+            logger.error("Redis connection is not available. Scan aborted.")
+            return
+        
         try:
+            # dirty the lex indexes
+            redis.set(REBUILD_DIRTY, 1)
+
             self.scan_status["state"] = ScanState.RUNNING
             self.scan_status["indexed_files"] = 0
             self.scan_status["message"] = "Scanning in progress..."
@@ -386,10 +390,104 @@ class ScanService:
                 and self.scan_status["state"] != ScanState.IDLE
             ):
                 self.scan_status["state"] = ScanState.IDLE
+            
+            self.__schedule_lex_rebuild__()
 
+    @with_app_context
+    def __schedule_lex_rebuild__(self, delay_seconds: int = 10, *, context: AppContext = None):
+
+        def worker():
+            redis = context.redis_client
+            if not redis:
+                return
+            
+            time.sleep(delay_seconds)
+            # if new changes happened, abort (another worker will handle it)
+            if redis.get(REBUILD_DIRTY) is None:
+                return
+
+            # acquire rebuild lock
+            if not redis.set(REBUILD_LOCK, 1, nx=True, ex=300):
+                return
+
+            try:
+                redis.delete(REBUILD_DIRTY)
+                asyncio.run(rebuild_lex_sort_indexes())
+            finally:
+                redis.delete(REBUILD_LOCK)
+
+        threading.Thread(target=worker, daemon=True).start()
 
 @with_app_context
 def get_scan_service(*, context: AppContext = None) -> ScanService:
     if not hasattr(context, "_scan_service"):
         context._scan_service = ScanService()
     return context._scan_service
+
+@with_app_context
+async def rebuild_lex_sort_indexes(*, context: AppContext = None):
+    redis = context.redis_client
+    if not redis:
+        return
+
+    logger.info("Rebuilding lexicographic sort indexes (atomic)")
+
+    filename_new = f"{SORT_INDEX_FILENAME}:new"
+    path_new = f"{SORT_INDEX_PATH}:new"
+
+    filename_map: dict[str, list[str]] = {}
+    path_map: dict[str, list[str]] = {}
+
+    for key in redis.scan_iter(f"{PCAP_FILE_KEY_PREFIX}:*"):
+        file_hash = key.split(":")[-1]
+
+        fname, fpath = redis.hmget(key, "filename_sort", "path_sort")
+
+        if fname:
+            filename_map.setdefault(fname, []).append(file_hash)
+        if fpath:
+            path_map.setdefault(fpath, []).append(file_hash)
+
+    # filename sort index
+    filenames = await asyncio.to_thread(
+        redis.zrange, LEX_INDEX_FILENAME, 0, -1
+    )
+
+    pipe = redis.pipeline()
+    pipe.delete(filename_new)
+
+    for rank, fname in enumerate(filenames):
+        hashes = filename_map.get(fname)
+        if hashes:
+            pipe.zadd(
+                filename_new,
+                {h: rank for h in hashes}
+            )
+
+    pipe.execute()
+
+    # path sort index
+    paths = await asyncio.to_thread(
+        redis.zrange, LEX_INDEX_PATH, 0, -1
+    )
+
+    pipe = redis.pipeline()
+    pipe.delete(path_new)
+
+    for rank, fpath in enumerate(paths):
+        hashes = path_map.get(fpath)
+        if hashes:
+            pipe.zadd(
+                path_new,
+                {h: rank for h in hashes}
+            )
+
+    pipe.execute()
+
+    # swap in new indexes atomically
+    pipe = redis.pipeline()
+    pipe.rename(filename_new, SORT_INDEX_FILENAME)
+    pipe.rename(path_new, SORT_INDEX_PATH)
+    pipe.execute()
+
+    logger.info("Lexicographic sort indexes rebuilt successfully.")
