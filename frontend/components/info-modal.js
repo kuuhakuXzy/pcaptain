@@ -50,12 +50,15 @@ export function openInfoModal(file, event) {
 }
 
 let currentProtocolData = [];
+let allProtocolData = [];
 let currentSortColumn = null;
 let currentSortAscending = true;
 let sortListenersAttached = false;
+let searchListenerAttached = false;
 
 function renderProtocolTable(file) {
     resetSortState();
+    resetSearchInput();
     
     const tbody = document.getElementById("protocolTableBody");
     if (!tbody) return;
@@ -86,17 +89,23 @@ function renderProtocolTable(file) {
     }
 
     const protos = file.protocols.split(" ");
-    currentProtocolData = protos.map(p => ({
+    allProtocolData = protos.map(p => ({
         protocol: p,
         percent: percentMap[p] || 0,
         count: countMap[p] || 0
     }));
+    currentProtocolData = [...allProtocolData];
 
     renderTableRows(file);
     
     if (!sortListenersAttached) {
         attachSortListeners(file);
         sortListenersAttached = true;
+    }
+    
+    if (!searchListenerAttached) {
+        attachSearchListener(file);
+        searchListenerAttached = true;
     }
 }
 
@@ -187,10 +196,47 @@ function updateSortIcons(activeColumn, ascending) {
     });
 }
 
+function attachSearchListener(file) {
+    const searchInput = document.getElementById("protocolSearchInput");
+    if (!searchInput) return;
+    
+    searchInput.removeEventListener("input", searchInput._searchHandler);
+    
+    searchInput._searchHandler = (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        
+        if (query === "") {
+            currentProtocolData = [...allProtocolData];
+        } else {
+            currentProtocolData = allProtocolData.filter(p => 
+                p.protocol.toLowerCase().includes(query)
+            );
+        }
+        
+        // Re-apply current sort if any
+        if (currentSortColumn) {
+            sortProtocolData(currentSortColumn, currentSortAscending);
+        }
+        
+        renderTableRows(file);
+    };
+    
+    searchInput.addEventListener("input", searchInput._searchHandler);
+}
+
+function resetSearchInput() {
+    const searchInput = document.getElementById("protocolSearchInput");
+    if (searchInput) {
+        searchInput.value = "";
+    }
+    searchListenerAttached = false;
+}
+
 function resetSortState() {
     currentSortColumn = null;
     currentSortAscending = true;
     currentProtocolData = [];
+    allProtocolData = [];
     sortListenersAttached = false;
     
     // Reset all sort icons to default

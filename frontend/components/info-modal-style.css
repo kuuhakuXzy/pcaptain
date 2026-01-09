@@ -74,6 +74,31 @@
     to { opacity: 1; transform: translateY(0); }
 }
 
+.protocol-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.protocol-header strong {
+    margin-right: 10px;
+}
+
+#protocolSearchInput {
+    padding: 5px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    width: 150px;
+    transition: border-color 0.2s;
+}
+
+#protocolSearchInput:focus {
+    outline: none;
+    border-color: #0060A9;
+}
+
 .protocol-table-wrapper {
     margin-top: 10px;
     overflow-x: auto;
