@@ -9,6 +9,7 @@
 # Apply configurable mounted directory
 
 import redis
+import contextlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -55,10 +56,61 @@ async def scheduled_scan_loop():
             logger.error(f"Error in scheduled scan loop: {e}")
             await asyncio.sleep(60)
 
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    redis_client = context.redis_client
+    await context.initialize_async()
+    scan_service = get_scan_service()
+
+    @backoff.on_exception(
+        backoff.expo,
+        redis.exceptions.ConnectionError,
+        max_tries=5,
+        factor=0.5,
+    )
+    async def check_redis_for_pcaps():
+        if not redis_client:
+            raise redis.exceptions.ConnectionError("Redis client not initialized.")
+        return await asyncio.to_thread(redis_client.keys, "pcap:file:*")
+
+    if redis_client:
+        try:
+            existing_pcap_keys = await check_redis_for_pcaps()
+
+            if not existing_pcap_keys:
+                logger.info("No indexed pcaps found in Redis. Starting initial scan...")
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(
+                    context.thread_executor,
+                    lambda: scan_service.scan_wrapper(
+                        exclude_files=None,
+                        base_url=context.FULL_BASE_URL,
+                    ),
+                )
+            else:
+                logger.info(
+                    f"Found {len(existing_pcap_keys)} indexed pcaps in Redis. Skipping initial scan."
+                )
+        except Exception as e:
+            logger.error(f"Startup Redis check failed: {e}")
+    else:
+        logger.error("Redis client unavailable at startup.")
+
+    # Start background task
+    scan_task = asyncio.create_task(scheduled_scan_loop())
+
+    try:
+        yield
+    finally:
+        logger.info("Shutting down background tasks...")
+        scan_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await scan_task
 
 app = FastAPI(
     title="Pcap Catalog Service",
     description="A service to index and search pcap files by protocol using a Redis-native inverted index.",
+    lifespan=lifespan,
 )
 
 app.include_router(scan_router)
@@ -73,51 +125,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# --- API Endpoints ---
-@app.on_event("startup")
-async def startup_event():
-    redis_client = context.redis_client
-    await context.initialize_async()
-    scan_service = get_scan_service()
-
-    @backoff.on_exception(
-        backoff.expo, redis.exceptions.ConnectionError, max_tries=5, factor=0.5
-    )
-    async def check_redis_for_pcaps():
-        if not redis_client:
-            raise redis.exceptions.ConnectionError("Redis client not initialized.")
-        return await asyncio.to_thread(redis_client.keys, "pcap:file:*")
-
-    if redis_client:
-        try:
-            existing_pcap_keys = await check_redis_for_pcaps()
-
-            if not existing_pcap_keys:
-                logger.info("No indexed pcaps found in Redis. Starting initial scan...")
-                loop = asyncio.get_event_loop()
-                loop.run_in_executor(
-                    context.thread_executor,
-                    lambda: scan_service.scan_wrapper(
-                        exclude_files=None, base_url=context.FULL_BASE_URL
-                    ),
-                )
-            else:
-                logger.info(
-                    f"Found {len(existing_pcap_keys)} indexed pcaps in Redis. Skipping initial full scan."
-                )
-        except Exception as e:
-            logger.error(
-                f"Failed to check Redis for existing pcaps during startup: {e}"
-            )
-    else:
-        logger.error(
-            "Redis client is not available. Cannot perform startup check or scan."
-        )
-
-    asyncio.create_task(scheduled_scan_loop())
-
 
 @app.get("/health")
 async def health_check():
