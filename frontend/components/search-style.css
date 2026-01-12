@@ -96,6 +96,40 @@ body {
     background-color: #002b6b;
 }
 
+.danger-btn {
+    padding: 10px 15px;
+    border: 0;
+    background-color: #c0392b;
+    color: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.danger-btn:hover {
+    background-color: #922b21;
+}
+
+.danger-btn:disabled {
+    background-color: #cfcfcf;
+    color: #777;
+    cursor: not-allowed;
+}
+
+.search-box .danger-btn {
+    background-color: #c0392b;
+}
+
+.search-box .danger-btn:hover {
+    background-color: #922b21;
+}
+
+.search-box .danger-btn:disabled {
+    background-color: #cfcfcf;
+    color: #777;
+    cursor: not-allowed;
+}
+
 .status-signal {
     margin-top: -15px;
     margin-bottom: 10px;
