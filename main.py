@@ -10,6 +10,7 @@
 
 import os
 import subprocess
+import threading
 import redis
 import json
 import hashlib  
@@ -89,15 +90,55 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
     ]
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True)
+        
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        scan_process["tshark"] = process
 
-        if result.returncode != 0:
-            logger.error(f"tshark exited with error for {pcap_file}: {result.stderr}")
+        stdout_lines: List[str] = []
+        stderr_lines: List[str] = []
+
+        def read_stream(stream, sink):
+            for line in iter(stream.readline, ''):
+                sink.append(line)
+            stream.close()
+
+        stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines), daemon=True)
+        stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines), daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+
+        while process.poll() is None:
+            if scan_cancel_event.is_set():
+                logger.info(f"Scan cancellation requested. Terminating tshark for {pcap_file}.")
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                break
+            time.sleep(0.1)
+
+        process.wait()
+        stdout_thread.join()
+        stderr_thread.join()
+
+        if scan_cancel_event.is_set():
             return None
 
-        output = result.stdout.strip()
+        if process.returncode != 0:
+            stderr = "".join(stderr_lines).strip()
+            logger.error(f"tshark exited with error for {pcap_file}: {stderr}")
+            return None
+
+        output = "".join(stdout_lines).strip()
+
         if not output:
-            return {}
+            return {} 
 
         protocol_counts: Dict[str, int] = {}
 
@@ -117,6 +158,8 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
     except Exception as e:
         logger.error(f"Unexpected error while analyzing {pcap_file}: {e}")
         return None
+    finally:
+        scan_process["tshark"] = None
 
 async def get_protocols_from_pcap(pcap_file: str) -> Optional[Dict[str, int]]:
     return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file)
@@ -156,6 +199,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
     found_matching_folder = False
 
     for pcap_dir in PCAP_DIRECTORIES:
+        if scan_cancel_event.is_set():    #cancellation when indexing
+            return {"status": "cancelled", "indexed_files": files_indexed}
+
         if not await asyncio.to_thread(os.path.isdir, pcap_dir):
             logger.warning(f"Directory '{pcap_dir}' does not exist. Skipping.")
             continue
@@ -167,6 +213,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                 found_matching_folder = True
 
             for filename in files:
+                if scan_cancel_event.is_set():  #cancel scan during the loop
+                    return {"status":"cancelled", "indexed_files":files_indexed}
+
                 if filename in exclude_files or not filename.endswith((".pcap", ".pcapng", ".cap")):
                     continue
 
@@ -273,6 +322,10 @@ class ScanState(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"  #cancellation status
+
+scan_cancel_event = threading.Event() #monitor cancellation
+scan_process = {"tshark": None}
 
 scan_status: Dict[str, Any] = {
     "state": ScanState.IDLE,
@@ -282,6 +335,9 @@ scan_status: Dict[str, Any] = {
 
 def scan_wrapper(exclude_files=None, base_url=None):
     try:
+
+        scan_cancel_event.clear()   
+
         scan_status["state"] = ScanState.RUNNING
         scan_status["indexed_files"] = 0
         scan_status["message"] = "Scanning in progress..."
@@ -289,15 +345,21 @@ def scan_wrapper(exclude_files=None, base_url=None):
 
         result = asyncio.run(scan_and_index(exclude_files=exclude_files, base_url=base_url))
         scan_status["indexed_files"] = result.get("indexed_files", 0)
-        scan_status["state"] = ScanState.COMPLETED
-        scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
-        logger.info("Background scan completed.")
+
+        if scan_cancel_event.is_set():      #cancellation triggered by user
+            scan_status["state"] = ScanState.CANCELLED
+            scan_status["message"] = "Scan cancelled by User."
+        else:
+            scan_status["state"] = ScanState.COMPLETED
+            scan_status["message"] = f"Completed successfully. Indexed {scan_status['indexed_files']} files."
+            logger.info("Background scan completed.")
+
     except Exception as e:
         logger.error(f"Scan failed: {e}")
         scan_status["state"] = ScanState.FAILED
         scan_status["message"] = str(e)
     finally:
-        if scan_status["state"] != ScanState.FAILED:
+        if scan_status["state"] == ScanState.COMPLETED:
             scan_status["state"] = ScanState.IDLE
 
 # SCAN SCHEDULER
@@ -552,3 +614,26 @@ async def download_filtered_pcap(
         media_type='application/vnd.tcpdump.pcap', 
         filename=f"subset_{protocol}_{original_filename}"
     )
+
+@app.post("/scan-cancel", summary="Cancel the current scan")   
+async def cancel_scan():
+    """To flag the event of scan cancellation"""
+
+    if scan_status["state"] != ScanState.RUNNING:
+        raise HTTPException(status_code=409, detail="No scan is running to be cancelled")
+
+    scan_cancel_event.set()
+
+    proc = scan_process.get("tshark")
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+    scan_status["state"] = ScanState.CANCELLED
+    scan_status["message"] = "Scan cancelled by user"
+    return {"status": "cancelled"}
+    

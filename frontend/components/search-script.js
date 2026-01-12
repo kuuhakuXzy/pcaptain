@@ -14,6 +14,7 @@ let currentPage = 1;
 let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
+let scanStatusTimer = null;
 
 const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
 
@@ -37,6 +38,38 @@ function disappearSearchLoadingSpinner() {
     }
     if(searchBtn) searchBtn.style.display = "inline-block";
 }
+
+//check scan status
+function startScanStatusPolling() {
+    if (scanStatusTimer) {
+        clearInterval(scanStatusTimer);
+        scanStatusTimer = null;
+    }
+    scanStatusTimer = setInterval(async () => {
+        try {
+            const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+            const status = apiResponse.data.state;
+            if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                  status === SERVER_SCANNING_FILE_STATUS.IDLE
+                ) {
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+                showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+            } 
+            else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                  disappearScanLoadingSpinner();
+                  clearInterval(scanStatusTimer);
+                  scanStatusTimer = null;
+                  showToast(TOAST_STATUS.ERROR, "Scan failed");
+            }
+        } catch (err) {
+            disappearScanLoadingSpinner();
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+    }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+}  
 
 document.getElementById("searchBtn").addEventListener("click", () => {
     currentPage = 1; // Reset to page 1 on new search
@@ -169,21 +202,25 @@ document.getElementById("closeModalBtn").addEventListener("click", () => {
 function displayScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
+    const cancelBtn = document.getElementById("cancelScanBtn");
     if(spinner) {
         spinner.classList.remove("spinner-scan-hidden");
         spinner.classList.add("spinner-scan-visible");
     }
     if(scanBtn) scanBtn.style.display = "none";
+    if (cancelBtn) cancelBtn.disabled = false;
 }
 
 function disappearScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
+    const cancelBtn = document.getElementById("cancelScanBtn");
     if(spinner) {
         spinner.classList.add("spinner-scan-hidden");
         spinner.classList.remove("spinner-scan-visible");
     }
     if(scanBtn) scanBtn.style.display = "inline-block";
+    if (cancelBtn) cancelBtn.disabled = true;
 }
 
 document.getElementById("scanAllBtn").addEventListener("click", async () => {
@@ -191,6 +228,22 @@ document.getElementById("scanAllBtn").addEventListener("click", async () => {
     scanModal.classList.add("hidden");
     await scanFiles();
 });
+
+document.getElementById("cancelScanBtn").addEventListener("click", async () => {
+    try {
+        await axios.post(SERVER + API_PATH.SCAN_CANCEL_PATH);
+        if (scanStatusTimer) {
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+        disappearScanLoadingSpinner();
+        showToast(TOAST_STATUS.INFO, "Scan cancelled");
+    } 
+    catch (err) {
+        showToast(TOAST_STATUS.ERROR, "Failed to cancel scan");
+    }
+  });
+
 
 const chooseDirBtn = document.getElementById("chooseDirBtn");
 if (chooseDirBtn) {
@@ -219,13 +272,21 @@ setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 
 async function scanFiles() {
     displayScanLoadingSpinner();
+
+    if (scanStatusTimer) {
+        clearInterval(scanStatusTimer);
+        scanStatusTimer = null;
+    }
+
     try {
         const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH);
         if (!apiResponse) {
             disappearScanLoadingSpinner();
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
         }
-        const timer = setInterval(async () => {
+        startScanStatusPolling();
+        //const timer = setInterval(async () => {
+        /*scanStatusTimer = setInterval(async () => {
             try {
                 const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
                 const status = apiResponse.data.state;
@@ -233,24 +294,43 @@ async function scanFiles() {
                     status === SERVER_SCANNING_FILE_STATUS.IDLE
                 ) {
                     disappearScanLoadingSpinner();
-                    clearInterval(timer);
+                    clearInterval(scanStatusTimer);
+                    scanStatusTimer = null;
                     showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
                 } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                     disappearScanLoadingSpinner();
-                    clearInterval(timer);
+                    clearInterval(scanStatusTimer);
                     showToast(TOAST_STATUS.ERROR, "Scan failed");
                 }
             } catch (err) {
                 disappearScanLoadingSpinner();
-                clearInterval(timer);
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
             }
-        }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+        }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
     }
 }
+
+async function syncScanStateOnLoad() {
+    try {
+        const res = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+        if (res.data.state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
+            displayScanLoadingSpinner();
+            startScanStatusPolling();
+        } 
+        else {
+            disappearScanLoadingSpinner();
+        }
+    } catch (_) {
+          // keep default UI
+    }
+}
+
+syncScanStateOnLoad();
 
 async function fetchFiles() {
     const search = document.getElementById("searchInput").value.toLowerCase().trim();
