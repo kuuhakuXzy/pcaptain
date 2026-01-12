@@ -15,8 +15,8 @@ services:
     # network_mode: "host"
 
   backend:
-    #image: mika1512/pcap-catalog-service:2.5.0
-    build: .                        
+    # image: mika1512/pcap-catalog-service:2.5.0
+    build: ./backend
     container_name: backend
     restart: always
     depends_on:
@@ -31,7 +31,7 @@ services:
       - PCAP_PREFIX_STR=${PCAP_DIRECTORIES} # Adjusted to match host path
       - REDIS_HOST=redis
       - REDIS_PORT=${REDIS_INTERNAL_PORT}
-      - PUBLIC_URL=http://localhost:${BE_BASE_PORT}
+      - PUBLIC_URL=${BE_PUBLIC_URL}
     # using config/config.yaml instead for configuration
     networks:
       - app_network
