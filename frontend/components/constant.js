@@ -6,8 +6,9 @@ const API_PATH = Object.freeze({
     SERVER_HEALTH_CHECK_PATH: "health",
     SCAN_STATUS_PATH: "scan-status",
     SEARCH_SUGGESTION: "protocols/suggest",
+    CANCEL_SCAN_PATH: "cancel-scan",
     EXCLUDED_PROTOCOLS_PATH: "excluded-protocols",
-    SCAN_CANCEL_PATH: "scan-cancel"
+    DASHBOARD_SUMMARY_PATH: "dashboard-summary"
 });
 
 const TOAST_STATUS = Object.freeze({

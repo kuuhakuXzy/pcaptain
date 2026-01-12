@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="dashboard-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>PCAP Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>PCAP Dashboard</h1>
+            <nav>
+                <a href="/" class="nav-link">
+                    <i class="fa fa-search"></i> Search
+                </a>
+                <button id="refreshBtn" class="refresh-btn" title="Refresh Data">
+                    <i class="fa fa-refresh"></i> Refresh
+                </button>
+            </nav>
+        </header>
+
+        <div id="loadingIndicator" class="loading-indicator hidden">
+            <div class="spinner"></div>
+            <p>Loading dashboard data...</p>
+        </div>
+
+        <div id="errorMessage" class="error-message hidden"></div>
+
+        <div id="dashboardContent" class="dashboard-content hidden">
+            <div class="stats-overview">
+                <div class="overview-card">
+                    <div class="overview-icon">
+                        <i class="fa fa-files-o"></i>
+                    </div>
+                    <div class="overview-content">
+                        <div class="overview-label">Total Files</div>
+                        <div class="overview-value" id="totalFiles">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <!-- Protocol Presence -->
+                <div class="stat-card large">
+                    <h2>Protocol Presence</h2>
+                    <canvas id="protocolPresenceChart"></canvas>
+                </div>
+                
+                <!-- File Size Distribution -->
+                <div class="stat-card">
+                    <h2>File Size Distribution</h2>
+                    <canvas id="sizeDistChart"></canvas>
+                </div>
+
+                <!-- Packet Count Distribution -->
+                <div class="stat-card">
+                    <h2>Packet Count Distribution</h2>
+                    <canvas id="packetDistChart"></canvas>
+                </div>
+
+
+                <!-- Protocol Diversity -->
+                <div class="stat-card">
+                    <h2>Protocol Diversity</h2>
+                    <div class="diversity-container">
+                        <div class="diversity-chart">
+                            <canvas id="diversityChart"></canvas>
+                        </div>
+                        <div class="diversity-legend">
+                            <div class="legend-title">Distribution</div>
+                            <div id="diversityLegendList" class="legend-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Age Distribution -->
+                <div class="stat-card">
+                    <h2>File Age Distribution</h2>
+                    <canvas id="ageDistChart"></canvas>
+                </div>
+
+                <!-- Size Per Packet Distribution -->
+                <div class="stat-card">
+                    <h2>Avg. Packet Size Distribution</h2>
+                    <canvas id="sizePerPacketChart"></canvas>
+                </div>
+
+                <!-- File/Folder Table -->
+                <div class="stat-card large">
+                    <h2>File System Overview</h2>
+                    <div class="filesystem-container">
+                        <div class="filesystem-section">
+                            <h3>Directories</h3>
+                            <div id="directoryTable" class="data-table"></div>
+                        </div>
+                        <div class="filesystem-section">
+                            <h3>File Extensions</h3>
+                            <div id="extensionTable" class="data-table"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metadata">
+                <p>Last updated: <span id="lastUpdated"></span></p>
+            </div>
+        </div>
+    </div>
+    <script src="../config.js"></script>
+    <script type="module" src="dashboard-script.js"></script>
+</body>
