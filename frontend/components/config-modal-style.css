@@ -1,5 +1,6 @@
 /* ---- CONFIG BUTTON ---- */
-.config-btn {
+.config-btn,
+.dashboard-btn {
     padding: 10px 15px;
     background-color: #6c757d;
     color: white;
@@ -8,15 +9,30 @@
     cursor: pointer;
     font-size: 16px;
     transition: background-color 0.3s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.config-btn:hover {
+.config-btn:hover,
+.dashboard-btn:hover {
     background-color: #5a6268;
 }
 
-.config-btn i {
+.config-btn i,
+.dashboard-btn i {
     font-size: 16px;
 }
+
+.dashboard-btn {
+    background-color: #0060A9;
+}
+
+.dashboard-btn:hover {
+    background-color: #002b6b;
+}
+
 
 /* ---- CONFIG MODAL ---- */
 .config-modal-content {

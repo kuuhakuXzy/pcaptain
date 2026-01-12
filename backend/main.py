@@ -24,6 +24,7 @@ from routes.scan import router as scan_router
 from routes.protocols import router as protocols_router
 from routes.pcaps import router as pcaps_router
 from routes.search import router as search_router
+from routes.dashboard import router as dashboard_router
 
 config = load_config()
 setup_logging(config.log.level)
@@ -117,6 +118,7 @@ app.include_router(scan_router)
 app.include_router(protocols_router)
 app.include_router(pcaps_router)
 app.include_router(search_router)
+app.include_router(dashboard_router)
 
 app.add_middleware(
     CORSMiddleware,
