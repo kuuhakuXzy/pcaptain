@@ -167,6 +167,8 @@ async def fuzzy_search_pcaps(
     rows = await asyncio.to_thread(pipe.execute)
 
     results = []
+    internal_pcap_root = context.config.pcap.root_directory
+    prefix_str = context.config.pcap.prefix_str
     for row in rows:
         if not row:
             continue
@@ -180,10 +182,10 @@ async def fuzzy_search_pcaps(
         row["matched_protocols"] = matched
         row["searched_protocol"] = protocol
 
-        if context.PCAP_FILE_PREFIX:
+        if prefix_str:
             row["path"] = row["path"].replace(
-                context.PCAP_DIRECTORIES_STR,
-                context.PCAP_FILE_PREFIX,
+                internal_pcap_root,
+                prefix_str,
                 1,
             )
 

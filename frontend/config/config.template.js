@@ -1,4 +1,4 @@
 window.APP_CONFIG = {
-    BASE_URL: "${BE_BASE_URL}",
-    BASE_PORT: "${BE_BASE_PORT}"
+    // Backend base URL
+    BE_BASE_URL: 'http://localhost:7000',
 }

@@ -28,12 +28,11 @@ async def reindex_pcaps(
         )
     scan_service.scan_cancel_event.clear()
 
-    base_url = context.FULL_BASE_URL or str(request.base_url).rstrip("/")
     loop = asyncio.get_event_loop()
     loop.run_in_executor(
         context.thread_executor,
         lambda: scan_service.scan_wrapper(
-            exclude_files=exclude, base_url=base_url
+            exclude_files=exclude
         ),
     )
     return JSONResponse(content={"status": "started"})
@@ -72,10 +71,8 @@ async def reindex_specific_folder(
     exclude: Optional[List[str]] = Query(None),
 ):
     scan_service = get_scan_service()
-    base_url = str(request.base_url).rstrip("/")
     result = await scan_service.scan_and_index(
         exclude_files=exclude,
-        base_url=base_url,
         target_folder=folder_name,
     )
     if "error" in result:

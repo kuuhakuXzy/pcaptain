@@ -15,26 +15,27 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import backoff
 
-from services.context import get_app_context
-from services.logger import get_logger
+from services.context import init_app_context
+from services.logger import get_logger, setup_logging
 from services.scan import ScanState, get_scan_service
+from services.config import load_config
 
 from routes.scan import router as scan_router
 from routes.protocols import router as protocols_router
 from routes.pcaps import router as pcaps_router
 from routes.search import router as search_router
 
-
+config = load_config()
+setup_logging(config.log.level)
 logger = get_logger(__name__)
-context = get_app_context()
-
+context = init_app_context(config)
 
 # SCAN SCHEDULER
 async def scheduled_scan_loop():
     """Runs in the background and triggers a scan every X seconds."""
     while True:
         try:
-            interval = context.SCANNER_INTERVAL_SECONDS
+            interval = config.pcap.scan_interval_seconds
             scan_service = get_scan_service()
 
             await asyncio.sleep(interval)
@@ -46,7 +47,7 @@ async def scheduled_scan_loop():
                 await loop.run_in_executor(
                     context.thread_executor,
                     lambda: scan_service.scan_wrapper(
-                        exclude_files=None, base_url=context.FULL_BASE_URL
+                        exclude_files=None
                     ),
                 )
             else:
@@ -84,7 +85,6 @@ async def lifespan(app: FastAPI):
                     context.thread_executor,
                     lambda: scan_service.scan_wrapper(
                         exclude_files=None,
-                        base_url=context.FULL_BASE_URL,
                     ),
                 )
             else:

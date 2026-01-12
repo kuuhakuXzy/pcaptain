@@ -133,8 +133,7 @@ function renderTableRows(file) {
             e.stopPropagation();
             const protocol = downloadBtn.getAttribute("data-protocol");
             showToast(TOAST_STATUS.INFO, `Preparing download for ${protocol.toUpperCase()}...`);
-            const fileHash = file.download_url.split("/").pop();
-            const downloadUrl = `${SERVER}pcaps/download/${fileHash}/filter?protocol=${protocol}`;
+            const downloadUrl = `${file.download_url}/filter?protocol=${protocol}`;
             window.location.href = downloadUrl;
         });
     });

@@ -25,8 +25,14 @@ services:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
       - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}:ro"
-    env_file:
-      - .env
+    environment:
+      - PORT=${BE_INTERNAL_PORT}
+      - PCAP_ROOT_DIRECTORY=${PCAP_MOUNTED_DIRECTORY}
+      - PCAP_PREFIX_STR=${PCAP_DIRECTORIES} # Adjusted to match host path
+      - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_INTERNAL_PORT}
+      - PUBLIC_URL=http://localhost:${BE_BASE_PORT}
+    # using config/config.yaml instead for configuration
     networks:
       - app_network
 

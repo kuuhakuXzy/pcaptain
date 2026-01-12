@@ -34,7 +34,7 @@ async def download_pcap_by_hash(
 
     abs_path = await asyncio.to_thread(os.path.abspath, file_path)
     allowed_abs_dirs = [
-        await asyncio.to_thread(os.path.abspath, d) for d in context.PCAP_DIRECTORIES
+        await asyncio.to_thread(os.path.abspath, context.config.pcap.root_directory)
     ]
     if not any(abs_path.startswith(d) for d in allowed_abs_dirs):
         raise HTTPException(status_code=403, detail="Forbidden: Access is denied.")

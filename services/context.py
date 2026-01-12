@@ -3,55 +3,42 @@ from redis import Redis
 from redis.exceptions import ConnectionError
 import os
 from concurrent.futures import ThreadPoolExecutor
-from dotenv import load_dotenv
 from typing import Optional
 
 from .logger import get_logger
-
-load_dotenv()
+from .config import AppConfig, load_config
 
 logger = get_logger(__name__)
 
 class AppContext:
-    redis_client: Optional[Redis] = None
-    default_excluded_protocols = set()
-    dynamic_excluded_protocols = set()
 
-    def __init__(self):
+    def __init__(self, config: AppConfig = None):
+        self.config = config or load_config()
+        self.redis_client: Optional[Redis] = None
         self.thread_executor = ThreadPoolExecutor()
+        self.dynamic_excluded_protocols = set()
+
     
     def initialize(self):
-        self.__init_config__()
         self.__initialize_redis__()
-        self.__initialize_excluded_protocols__()
     
     async def initialize_async(self):
         await self.refresh_dynamic_excluded_protocols()
     
     ## Redis Initialization ##
     def __initialize_redis__(self):
-        REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-        REDIS_PORT = int(os.getenv("REDIS_INTERNAL_PORT", 6379))
+        redis_host = self.config.redis.host
+        redis_port = self.config.redis.port
         try:
-            self.redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+            self.redis_client = Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
             self.redis_client.ping()
-            logger.info(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+            logger.info(f"Successfully connected to Redis at {redis_host}:{redis_port}")
         except ConnectionError as e:
             logger.error(f"Could not connect to Redis: {e}")
             self.redis_client = None
 
-
-    ## Excluded Protocols Management ##
-    def __initialize_excluded_protocols__(self):
-        protocols = os.getenv("DEFAULT_EXCLUDED_PROTOCOLS", "")
-        default_protocols = set(protocols.split(",")) if protocols else set()
-
-        self.default_excluded_protocols = default_protocols
-        self.dynamic_excluded_protocols = set()
-        logger.info(f"Initialized excluded protocols: {self.default_excluded_protocols}")
-
     def get_excluded_protocols(self) -> set:
-        return self.default_excluded_protocols.union(self.dynamic_excluded_protocols)
+        return self.config.pcap.excluded_protocols.union(self.dynamic_excluded_protocols)
     
     def get_dynamic_excluded_protocols(self) -> set:
         return self.dynamic_excluded_protocols
@@ -73,34 +60,20 @@ class AppContext:
         except Exception as e:
             logger.error(f"Error while refreshing excluded protocols from Redis: {e}")
     
-
-    ## Environment Variables ##
-    def __init_config__(self):        
-        self.PCAP_DIRECTORIES_STR = os.getenv("PCAP_MOUNTED_DIRECTORY", "pcaps")
-        self.PCAP_DIRECTORIES = [path.strip() for path in self.PCAP_DIRECTORIES_STR.split(',')]
-
-        BASE_URL = os.getenv("BE_BASE_URL")
-        BASE_PORT = os.getenv("BE_BASE_PORT")
-
-        self.FULL_BASE_URL = None
-        if BASE_URL:
-            if not BASE_URL.startswith("http://") and not BASE_URL.startswith("https://"):
-                BASE_URL = f"http://{BASE_URL}" 
-            if BASE_PORT:
-                self.FULL_BASE_URL = f"{BASE_URL}:{BASE_PORT}"
-            else:
-                self.FULL_BASE_URL = BASE_URL
-        
-        self.PCAP_FILE_PREFIX = os.getenv("PCAP_FILE_PREFIX")
-        self.SCANNER_INTERVAL_SECONDS = int(os.getenv("SCAN_INTERVAL_SECONDS", 3600))
-            
 _app_context: Optional[AppContext] = None
 
-def get_app_context() -> AppContext:
+def init_app_context(config: AppConfig) -> AppContext:
     global _app_context
+    if _app_context is not None:
+        return _app_context
+
+    _app_context = AppContext(config)
+    _app_context.initialize()
+    return _app_context
+
+def get_app_context() -> AppContext:
     if _app_context is None:
-        _app_context = AppContext()
-        _app_context.initialize()
+        raise RuntimeError("AppContext not initialized")
     return _app_context
 
 from functools import wraps
