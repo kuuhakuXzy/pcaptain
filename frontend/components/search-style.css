@@ -65,7 +65,8 @@ body {
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.15s ease;
-    min-width: 190px;
+    min-width: 0;
+    width: max-content;
     z-index: 20;
 }
 

@@ -35,11 +35,15 @@ async function loadScanConfigTooltip() {
                 : "N/A";
         const minFileSize = config.min_file_size || "0";
         const configVersion = config.config_version || "v1";
-        tooltipContent.textContent =
-            `Scan Mode: ${scanModeLabel}\n` +
-            `PEBC: ${pebcLabel}\n` +
-            `Min File Size: ${minFileSize}\n` +
-            `Config Version: ${configVersion}`;
+        if (config.scan_mode === "full") {
+            tooltipContent.textContent = `Scan Mode: ${scanModeLabel}`;
+        } else {
+            tooltipContent.textContent =
+                `Scan Mode: ${scanModeLabel}\n` +
+                `PEBC: ${pebcLabel}\n` +
+                `Min File Size: ${minFileSize}\n` +
+                `Config Version: ${configVersion}`;
+        }
     } catch (err) {
         tooltipContent.textContent = "Scan config unavailable";
     }
@@ -598,6 +602,15 @@ function openInfoModal(file, event) {
     document.getElementById("infoScanMode").innerText = scanModeValue;
     document.getElementById("infoScanPebc").innerText = pebcValue;
     document.getElementById("infoScanConfigVersion").innerText = file.config_version || "N/A";
+    const pebcRow = document.getElementById("infoScanPebcRow");
+    const configRow = document.getElementById("infoScanConfigVersionRow");
+    if (file.scan_mode === "full") {
+        if (pebcRow) pebcRow.style.display = "none";
+        if (configRow) configRow.style.display = "none";
+    } else {
+        if (pebcRow) pebcRow.style.display = "";
+        if (configRow) configRow.style.display = "";
+    }
 
     // Fill all protocols
     const protoContainer = document.getElementById("infoProtocols");
