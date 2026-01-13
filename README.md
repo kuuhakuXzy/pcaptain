@@ -2,13 +2,13 @@
 
 A high-performance, asynchronous web service that scans directories of pcap files, catalogs them in Redis based on detailed protocol analysis, and provides a powerful REST API to search, download, and get autocomplete suggestions for protocols.
 
-This project uses `tshark`'s native statistics engine for fast analysis and Redis for high-speed indexing and searching. It's designed for efficiency and ease of use, packaged with Docker for simple deployment.
+This project uses `tshark`'s native statistics engine for fast analysis, `capinfos` for total packet counts, and Redis for high-speed indexing and searching. It's designed for efficiency and ease of use, packaged with Docker for simple deployment.
 
 ## Features
 
 - High-Performance Scanning: Uses `tshark`'s optimized statistics engine (`-z io,phs`) to analyze pcaps much faster than per-packet methods.
 - Intelligent Indexing: Scans are incremental; already indexed and unchanged files are skipped.
-- Detailed Metadata: Catalogs not just which protocols are present, but also the packet count for every protocol in the file.
+- Detailed Metadata: Catalogs not just which protocols are present, but also the packet count for every protocol in the file and the total packet count via `capinfos`.
 - Redis-Powered: All metadata and indexes are stored in Redis for extremely fast lookups.
 - Asynchronous & Non-Blocking: Scanning runs in a background thread, so the API remains responsive at all times.
 - Fuzzy Search / Autocomplete: Provides an API endpoint to get live suggestions for protocol names as the user types.
@@ -20,7 +20,7 @@ This project uses `tshark`'s native statistics engine for fast analysis and Redi
 -   Docker
 -   Docker Compose
 
-The service, including `tshark` and all dependencies, runs inside a Docker container, so you do not need to install anything on your host machine.
+The service, including `tshark`, `capinfos`, and all dependencies, runs inside a Docker container, so you do not need to install anything on your host machine.
 
 ## How to Run
 
@@ -63,6 +63,18 @@ You can also use `curl` for testing.
     curl http://localhost:8000/scan-status | jq
     ```
 
+-   **Backfill total packet counts for already-indexed files:**
+    ```bash
+    curl -X POST http://localhost:8000/backfill/total-packets
+    ```
+
+-   **Check the status of a backfill:**
+    ```bash
+    curl http://localhost:8000/backfill-status | jq
+    ```
+
+    *(Note: backfill is manual-only and does not run on startup.)*
+
 ### 2. Searching and Suggestions
 
 -   **Get autocomplete suggestions (fuzzy search):**
@@ -95,4 +107,3 @@ You can also use `curl` for testing.
     ```bash
     curl http://localhost:8000/health
     ```
-
