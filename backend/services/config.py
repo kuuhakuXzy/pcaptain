@@ -1,7 +1,7 @@
 import yaml
-import os
+from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Optional, Set
 from pydantic import BaseModel, Field
 from .logger import get_logger
 
@@ -13,12 +13,17 @@ class RedisConfig(BaseModel):
     port: int = 6379
 
 
+class ScanMode(str, Enum):
+    NORMAL = "normal"
+    FAST = "fast"
+
 class PcapConfig(BaseModel):
     root_directory: str = "/pcaps"
     prefix_str: Optional[str] = None
     excluded_protocols: Set[str] = Field(default_factory=set)
     allowed_file_extensions: Set[str] = Field(default_factory=lambda: {".pcap", ".pcapng", ".cap"})
     scan_interval_seconds: int = 300
+    scan_mode: ScanMode = ScanMode.NORMAL
 
 
 class LogConfig(BaseModel):

@@ -21,5 +21,7 @@ pcap:
   
   scan_interval_seconds: 3600  # 1 hour
 
+  scan_mode: fast  # options: normal, fast
+
 log:
   level: INFO

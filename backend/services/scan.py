@@ -100,6 +100,33 @@ class ScanService:
     }
     scan_cancel_event = Event()
     scan_process: Dict[str, Optional[subprocess.Popen]] = {"tshark": None}
+    
+    @staticmethod
+    async def should_scan(redis_client, pcap_key: str, current_scan_mode: str) -> bool:
+        """Check if file should be rescanned based on stored vs current scan_mode.
+        
+        Returns True if:
+        - File doesn't exist in Redis
+        - Stored scan_mode is 'fast' and current is 'normal' (need full rescan)
+        """
+        if not await asyncio.to_thread(redis_client.exists, pcap_key):
+            return True
+        
+        stored_scan_mode = await asyncio.to_thread(redis_client.hget, pcap_key, "scan_mode")
+        
+        if stored_scan_mode is None:
+            # Old data without scan_mode, rescan
+            return True
+        
+        if isinstance(stored_scan_mode, bytes):
+            stored_scan_mode = stored_scan_mode.decode('utf-8')
+        
+        # If stored is 'fast' and current is 'normal', we need full rescan
+        if stored_scan_mode == "fast" and current_scan_mode == "normal":
+            return True
+        
+        # Otherwise, don't rescan (same mode or downgrading to fast)
+        return False
 
     @with_app_context
     async def scan_and_index(
@@ -159,21 +186,28 @@ class ScanService:
                     seen_hashes.add(file_hash)
 
                     pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+                    current_scan_mode = config.pcap.scan_mode.value
 
                     if await asyncio.to_thread(redis_client.exists, pcap_key):
                         stored_path = await asyncio.to_thread(
                             redis_client.hget, pcap_key, "path"
                         )
                         if stored_path == file_path:
-                            await asyncio.to_thread(
-                                redis_client.hset,
-                                pcap_key,
-                                mapping={"last_scanned": time.time()},
-                            )
-                            logger.info(
-                                f"Skipping {file_path} (already indexed and unchanged)"
-                            )
-                            continue
+                            # Check if we need to rescan based on scan_mode
+                            if await self.should_scan(redis_client, pcap_key, current_scan_mode):
+                                logger.info(
+                                    f"Rescanning {file_path} due to scan_mode change"
+                                )
+                            else:
+                                await asyncio.to_thread(
+                                    redis_client.hset,
+                                    pcap_key,
+                                    mapping={"last_scanned": time.time()},
+                                )
+                                logger.info(
+                                    f"Skipping {file_path} (already indexed and unchanged)"
+                                )
+                                continue
                         elif await asyncio.to_thread(os.path.exists, stored_path):
                             logger.info(
                                 f"Duplicate file detected at {stored_path} (hash exists at {file_path})"
@@ -198,8 +232,12 @@ class ScanService:
                             )
                             continue
 
-                    logger.info(f"Processing file: {file_path}")
-                    protocol_data = await self.get_protocols_from_pcap(file_path, excluded_protocols=config.pcap.excluded_protocols)
+                    logger.info(f"Processing file: {file_path} (scan_mode: {current_scan_mode})")
+                    protocol_data = await self.get_protocols_from_pcap(
+                        file_path, 
+                        excluded_protocols=config.pcap.excluded_protocols,
+                        scan_mode=current_scan_mode
+                    )
 
                     if protocol_data is not None:
                         if not protocol_data:
@@ -249,6 +287,7 @@ class ScanService:
                                     os.path.getmtime, file_path
                                 ),
                                 "last_scanned": current_time,
+                                "scan_mode": current_scan_mode,
                             },
                         )
 
@@ -374,7 +413,92 @@ class ScanService:
 
         threading.Thread(target=worker, daemon=True).start()
     
+    def get_protocols_from_pcap_fast_sync(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None) -> Optional[Dict[str, int]]:
+        """Fast protocol scan using fastscan binary."""
+        scan_cancel_event = self.scan_cancel_event
+        scan_process = self.scan_process
+        
+        if not os.path.exists(pcap_file):
+            logger.error(f"fastscan binary not found at {pcap_file}. Please build it first.")
+            return None
+        
+        # /usr/local/bin/fastscan
+        command = ['fastscan', pcap_file]
+        
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            scan_process["fastscan"] = process
+            
+            stdout_lines: List[str] = []
+            stderr_lines: List[str] = []
+            
+            def read_stream(stream, sink):
+                for line in iter(stream.readline, ''):
+                    sink.append(line)
+                stream.close()
+            
+            stdout_thread = threading.Thread(target=read_stream, args=(process.stdout, stdout_lines), daemon=True)
+            stderr_thread = threading.Thread(target=read_stream, args=(process.stderr, stderr_lines), daemon=True)
+            stdout_thread.start()
+            stderr_thread.start()
+            
+            while process.poll() is None:
+                if scan_cancel_event.is_set():
+                    logger.info(f"Scan cancellation requested. Terminating fastscan for {pcap_file}.")
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    break
+                time.sleep(0.1)
+            
+            process.wait()
+            stdout_thread.join()
+            stderr_thread.join()
+            
+            if scan_cancel_event.is_set():
+                return None
+            
+            if process.returncode != 0:
+                stderr = "".join(stderr_lines).strip()
+                logger.error(f"fastscan exited with error for {pcap_file}: {stderr}")
+                return None
+            
+            output = "".join(stdout_lines).strip()
+            
+            if not output:
+                return {}
+            
+            protocol_counts: Dict[str, int] = {}
+            
+            # Parse fastscan output: each line is "eth:ip:tcp:http" etc.
+            for line in output.splitlines():
+                protocols = line.split(":")
+                
+                unique_protocols = set(protocols) - (excluded_protocols or set())
+                
+                for proto in unique_protocols:
+                    protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
+            
+            return protocol_counts
+        
+        except FileNotFoundError:
+            logger.error(f"fastscan not found at {pcap_file}. Please build it first.")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error while analyzing {pcap_file} with fastscan: {e}")
+            return None
+        finally:
+            scan_process["fastscan"] = None
+    
     def get_protocols_from_pcap_sync(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None) -> Optional[Dict[str, int]]:
+        # Normal mode: use tshark
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
         command = [
@@ -456,8 +580,15 @@ class ScanService:
             scan_process["tshark"] = None
 
 
-    async def get_protocols_from_pcap(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None) -> Optional[Dict[str, int]]:
-        return await asyncio.to_thread(self.get_protocols_from_pcap_sync, pcap_file, excluded_protocols=excluded_protocols)
+    async def get_protocols_from_pcap(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None, scan_mode: str = "normal") -> Optional[Dict[str, int]]:
+        match scan_mode:
+            case "fast":
+                return await asyncio.to_thread(self.get_protocols_from_pcap_fast_sync, pcap_file, excluded_protocols=excluded_protocols)
+            case "normal":
+                return await asyncio.to_thread(self.get_protocols_from_pcap_sync, pcap_file, excluded_protocols=excluded_protocols)
+            case _:
+                logger.error(f"Unknown scan mode: {scan_mode}")
+                return None
 
 
 

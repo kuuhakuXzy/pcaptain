@@ -1,3 +1,17 @@
+FROM gcc:13-bookworm as fastscan-builder
+
+WORKDIR /build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libpcap-dev && \
+    rm -rf /var/lib/apt/lists/
+
+COPY fast_scan/fast_scan.cpp .
+COPY fast_scan/well_known_port.h .
+
+RUN g++ -O3 -std=c++17 fast_scan.cpp -lpcap -o fastscan
+
 FROM python:3.10-slim
 
 RUN apt-get update && \
@@ -9,16 +23,18 @@ RUN apt-get update && \
     chmod +x /usr/local/bin/yq && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy compiled fastscan binary
+COPY --from=fastscan-builder /build/fastscan /usr/local/bin/fastscan
+
 WORKDIR /app
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
+COPY backend . 
 # Copy entrypoint script
-COPY config/entrypoint.sh /entrypoint.sh
+COPY backend/config/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 RUN mkdir -p /app/pcaps
