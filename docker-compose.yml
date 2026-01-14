@@ -16,7 +16,9 @@ services:
 
   backend:
     # image: mika1512/pcap-catalog-service:2.5.0
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: backend
     restart: always
     depends_on:

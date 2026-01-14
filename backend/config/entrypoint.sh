@@ -41,6 +41,10 @@ if [ -n "$PCAP_SCAN_INTERVAL_SECONDS" ]; then
   yq -i '.pcap.scan_interval_seconds = env(PCAP_SCAN_INTERVAL_SECONDS)' "$CONFIG_FILE"
 fi
 
+if [ -n "$SCAN_MODE" ]; then
+  yq -i '.pcap.scan_mode = env(SCAN_MODE)' "$CONFIG_FILE"
+fi
+
 if [ -n "$LOG_LEVEL" ]; then
   yq -i '.log.level = env(LOG_LEVEL)' "$CONFIG_FILE"
 fi
