@@ -127,9 +127,12 @@ async def fuzzy_search_pcaps(
 
     await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
 
-    if excluded:
-        exclude_keys = [f"{PROTOCOCOL_INDEX_PREFIX}:{p.lower()}" for p in excluded]
-        await asyncio.to_thread(redis.sdiffstore, tmp_set, tmp_set, *exclude_keys)
+    ## disable because of bug:
+    # searh for h1 -> not return h1 files because `json` in the these files
+    # file have protocol `JSON` which is excluded
+    # if excluded:
+    #     exclude_keys = [f"{PROTOCOCOL_INDEX_PREFIX}:{p.lower()}" for p in excluded]
+    #     await asyncio.to_thread(redis.sdiffstore, tmp_set, tmp_set, *exclude_keys)
 
     total = await asyncio.to_thread(redis.scard, tmp_set)
     logger.info(f"Search for protocol '{protocol}' yielded {total} results")

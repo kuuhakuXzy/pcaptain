@@ -199,7 +199,7 @@ class ScanService:
                             continue
 
                     logger.info(f"Processing file: {file_path}")
-                    protocol_data = await self.get_protocols_from_pcap(file_path)
+                    protocol_data = await self.get_protocols_from_pcap(file_path, excluded_protocols=config.pcap.excluded_protocols)
 
                     if protocol_data is not None:
                         if not protocol_data:
@@ -374,7 +374,7 @@ class ScanService:
 
         threading.Thread(target=worker, daemon=True).start()
     
-    def get_protocols_from_pcap_sync(self, pcap_file: str) -> Optional[Dict[str, int]]:
+    def get_protocols_from_pcap_sync(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None) -> Optional[Dict[str, int]]:
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
         command = [
@@ -439,7 +439,7 @@ class ScanService:
             for line in output.splitlines():
                 protocols = line.split(":")
 
-                unique_protocols = set(protocols)
+                unique_protocols = set(protocols) - (excluded_protocols or set())
 
                 for proto in unique_protocols:
                     protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
@@ -456,8 +456,8 @@ class ScanService:
             scan_process["tshark"] = None
 
 
-    async def get_protocols_from_pcap(self, pcap_file: str) -> Optional[Dict[str, int]]:
-        return await asyncio.to_thread(self.get_protocols_from_pcap_sync, pcap_file)
+    async def get_protocols_from_pcap(self, pcap_file: str, excluded_protocols: Optional[set[str]] = None) -> Optional[Dict[str, int]]:
+        return await asyncio.to_thread(self.get_protocols_from_pcap_sync, pcap_file, excluded_protocols=excluded_protocols)
 
 
 
