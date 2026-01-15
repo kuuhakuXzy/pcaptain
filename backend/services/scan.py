@@ -503,7 +503,7 @@ class ScanService:
                                 "path_sort": path_norm,
                                 "size_bytes": file_size,
                                 "download_url": download_url,
-                                "protocols": " ".join(protocols),
+                                "protocols": ",".join(protocols),
                                 "total_packets": total_packets,
                                 "protocol_counts": json.dumps(protocol_data),
                                 "protocol_percentages": json.dumps(

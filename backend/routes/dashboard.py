@@ -133,7 +133,7 @@ async def build_dashboard_summary(context: AppContext):
 
                 size_bytes = int(data.get("size_bytes", 0))
                 packet_count = int(data.get("total_packets", 0))
-                protocols = data.get("protocols", "").split()
+                protocols = data.get("protocols", "").split(',')
                 last_modified = float(data.get("last_modified", now))
                 file_path = data.get("path", "")
 

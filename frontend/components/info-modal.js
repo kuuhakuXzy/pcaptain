@@ -46,7 +46,7 @@ export function openInfoModal(file, event) {
     document.getElementById("infoScanConfigVersion").innerText = file.config_version || "N/A";
     const pebcRow = document.getElementById("infoScanPebcRow");
     const configRow = document.getElementById("infoScanConfigVersionRow");
-    if (file.scan_mode === "full") {
+    if (file.scan_mode === "full" || file.scan_mode === undefined || file.scan_mode === null) {
         if (pebcRow) pebcRow.style.display = "none";
         if (configRow) configRow.style.display = "none";
     } else {
@@ -107,7 +107,7 @@ function renderProtocolTable(file) {
         return;
     }
 
-    const protos = file.protocols.split(" ");
+    const protos = file.protocols.split(",");
     allProtocolData = protos.map(p => ({
         protocol: p,
         percent: percentMap[p] || 0,
