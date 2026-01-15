@@ -21,7 +21,7 @@ pcap:
   
   scan_interval_seconds: 3600  # 1 hour
 
-  scan_mode: quick  # options: normal, quick, fast
+  scan_mode: fast  # options: normal, quick, fast
 
   # Quick scan (tshark sampling) settings
   # When scan_mode is "normal", enabling quick_scan will automatically use "quick"

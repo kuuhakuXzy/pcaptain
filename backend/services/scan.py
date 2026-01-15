@@ -185,7 +185,7 @@ async def get_all_protocols(redis: Redis):
 
 
 def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
-    command = ["capinfos", "-c", pcap_file]
+    command = ["capinfos", "-M", "-c", pcap_file]
 
     try:
         result = subprocess.run(
@@ -452,7 +452,12 @@ class ScanService:
 
                         protocols = sorted(list(protocol_data.keys()))
                         download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
-                        protocol_packet_count = sum(protocol_data.values())
+                        total_packets = await get_total_packets_from_pcap(file_path)
+                        if total_packets is None:
+                            logger.warning(
+                                f"capinfos failed for {file_path}; continuing without total_packets"
+                            )
+                            total_packets = 0
                         filename_norm = filename.lower()
                         path_norm = file_path.lower()
 
@@ -471,7 +476,7 @@ class ScanService:
                                 "size_bytes": file_size,
                                 "download_url": download_url,
                                 "protocols": " ".join(protocols),
-                                "protocol_packet_count": protocol_packet_count,
+                                "total_packets": total_packets,
                                 "protocol_counts": json.dumps(protocol_data),
                                 "protocol_percentages": json.dumps(
                                     protocol_percentages
@@ -503,7 +508,7 @@ class ScanService:
                         # Numeric sort (true score)
                         pipe.zadd(SORT_INDEX_SIZE, {file_hash: file_size})
 
-                        pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: protocol_packet_count})
+                        pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: total_packets or 0})
 
                         pipe.zadd(SORT_INDEX_FILENAME, {file_hash: 0}) # placeholder
                         pipe.zadd(SORT_INDEX_PATH, {file_hash: 0})
