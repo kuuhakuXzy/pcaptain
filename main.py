@@ -397,6 +397,40 @@ async def get_protocols_from_pcap(
     """Async wrapper around tshark protocol extraction."""
     return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file, scan_mode, quick_threshold_bytes)
 
+
+def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
+    command = ['capinfos', '-c', pcap_file]
+
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            logger.error(f"capinfos exited with error for {pcap_file}: {stderr}")
+            return None
+
+        match = re.search(r"(?:Number of packets|Packets)\s*[:=]\s*(\d+)", result.stdout)
+        if not match:
+            logger.error(f"Could not find packet count in capinfos output for {pcap_file}")
+            return None
+
+        return int(match.group(1))
+
+    except FileNotFoundError:
+        logger.error("capinfos not found — please install it.")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error while running capinfos on {pcap_file}: {e}")
+        return None
+
+async def get_total_packets_from_pcap(pcap_file: str) -> Optional[int]:
+    return await asyncio.to_thread(get_total_packets_from_pcap_sync, pcap_file)
+
 def calculate_protocol_percentages(protocol_counts: Dict[str, int], packets_scanned: int) -> Dict[str, float]:
     """
     Calculates the presence percentage of each protocol relative to scanned packets.
@@ -413,6 +447,39 @@ def calculate_protocol_percentages(protocol_counts: Dict[str, int], packets_scan
     }
 
     return percentages
+
+async def backfill_total_packets() -> dict:
+    if not redis_client:
+        return {"error": "Redis connection is not available."}
+
+    keys = await asyncio.to_thread(redis_client.keys, "pcap:file:*")
+    processed = 0
+    updated = 0
+    total = len(keys)
+
+    for key in keys:
+        data = await asyncio.to_thread(redis_client.hgetall, key)
+        if not data:
+            continue
+
+        processed += 1
+        existing_total = data.get("total_packets")
+        if existing_total not in (None, ""):
+            continue
+
+        file_path = data.get("path")
+        if not file_path or not await asyncio.to_thread(os.path.exists, file_path):
+            logger.warning(f"Missing file for total_packets backfill: {file_path}")
+            continue
+
+        total_packets = await get_total_packets_from_pcap(file_path)
+        if total_packets is None:
+            total_packets = ""
+
+        await asyncio.to_thread(redis_client.hset, key, "total_packets", total_packets)
+        updated += 1
+
+    return {"processed": processed, "updated": updated, "total": total}
 
 # --- Indexing Functionality ---
 async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, target_folder: Optional[str] = None) -> dict:
@@ -521,6 +588,11 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
 
                     protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
 
+                    file_size = await asyncio.to_thread(os.path.getsize, file_path)
+                    total_packets = await get_total_packets_from_pcap(file_path)
+                    if total_packets is None:
+                        total_packets = ""
+
                     file_hash = await calculate_sha256(file_path)
                     pcap_key = f"pcap:file:{file_hash}"
 
@@ -542,6 +614,7 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                         "source_directory": pcap_dir,
                         "path": file_path,
                         "size_bytes": file_size, 
+                        "total_packets": total_packets,
                         "protocols": ",".join(protocols), 
                         "protocol_counts": json.dumps(protocol_data), 
                         "protocol_percentages": json.dumps(protocol_percentages),
@@ -592,12 +665,26 @@ class ScanState(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"  #cancellation status
 
+class BackfillState(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
 scan_cancel_event = threading.Event() #monitor cancellation
 scan_process = {"tshark": None}
 
 scan_status: Dict[str, Any] = {
     "state": ScanState.IDLE,
     "indexed_files": 0,
+    "message": "Ready"
+}
+
+backfill_status: Dict[str, Any] = {
+    "state": BackfillState.IDLE,
+    "processed": 0,
+    "updated": 0,
+    "total": 0,
     "message": "Ready"
 }
 
@@ -629,6 +716,35 @@ def scan_wrapper(exclude_files=None, base_url=None):
     finally:
         if scan_status["state"] == ScanState.COMPLETED:
             scan_status["state"] = ScanState.IDLE
+
+def backfill_wrapper():
+    try:
+        backfill_status["state"] = BackfillState.RUNNING
+        backfill_status["processed"] = 0
+        backfill_status["updated"] = 0
+        backfill_status["total"] = 0
+        backfill_status["message"] = "Backfill in progress..."
+        logger.info("Background total_packets backfill started.")
+
+        result = asyncio.run(backfill_total_packets())
+        backfill_status["processed"] = result.get("processed", 0)
+        backfill_status["updated"] = result.get("updated", 0)
+        backfill_status["total"] = result.get("total", 0)
+
+        backfill_status["state"] = BackfillState.COMPLETED
+        backfill_status["message"] = (
+            "Completed successfully. "
+            f"Updated {backfill_status['updated']} of {backfill_status['processed']}."
+        )
+        logger.info("Background total_packets backfill completed.")
+
+    except Exception as e:
+        logger.error(f"Backfill failed: {e}")
+        backfill_status["state"] = BackfillState.FAILED
+        backfill_status["message"] = str(e)
+    finally:
+        if backfill_status["state"] == BackfillState.COMPLETED:
+            backfill_status["state"] = BackfillState.IDLE
 
 # SCAN SCHEDULER
 async def scheduled_scan_loop():
@@ -704,6 +820,17 @@ async def scan_config():
         "min_file_size": QUICK_SCAN_MIN_FILE_SIZE_DISPLAY,
         "config_version": QUICK_SCAN_CONFIG_VERSION,
     }
+@app.post("/backfill/total-packets", summary="Backfill total packet counts for existing pcaps")
+async def backfill_total_packets_endpoint():
+    if backfill_status["state"] == BackfillState.RUNNING:
+        return JSONResponse(content={"status": "busy", "message": "A backfill is already running."}, status_code=409)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(executor, backfill_wrapper)
+    return JSONResponse(content={"status": "started"})
+
+@app.get("/backfill-status")
+async def backfill_status_endpoint():
+    return backfill_status
 
 @app.post("/reindex/{folder_name}", summary="Reindex a specific folder under PCAP directories")
 async def reindex_specific_folder(folder_name: str, request: Request, exclude: Optional[List[str]] = Query(None)):
