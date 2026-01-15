@@ -130,6 +130,44 @@ body {
     cursor: not-allowed;
 }
 
+
+.scan-config-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 2px;
+}
+
+.scan-config-tooltip i {
+    color: #0060A9;
+    font-size: 16px;
+}
+
+.scan-config-tooltip-content {
+    position: absolute;
+    right: 0;
+    top: 130%;
+    background: #0b1e2d;
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: pre-line;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+    min-width: 0;
+    width: max-content;
+    z-index: 20;
+}
+
+.scan-config-tooltip:hover .scan-config-tooltip-content {
+    opacity: 1;
+    visibility: visible;
+}
+
+
 /* Search button group with dropdown */
 .search-btn-group {
     position: relative;

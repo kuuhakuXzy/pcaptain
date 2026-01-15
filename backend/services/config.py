@@ -2,7 +2,7 @@ import yaml
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Set
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +15,21 @@ class RedisConfig(BaseModel):
 
 class ScanMode(str, Enum):
     NORMAL = "normal"
+    QUICK = "quick"
     FAST = "fast"
+
+
+class QuickScanConfig(BaseModel):
+    pebc: float = 1.0
+    min_file_size: int | str = 0
+    config_version: str = "v1"
+
+    @field_validator("pebc")
+    @classmethod
+    def validate_pebc(cls, v: float) -> float:
+        if v <= 0 or v > 1:
+            raise ValueError("quick_scan.pebc must be > 0 and <= 1")
+        return v
 
 class PcapConfig(BaseModel):
     root_directory: str = "/pcaps"
@@ -24,6 +38,7 @@ class PcapConfig(BaseModel):
     allowed_file_extensions: Set[str] = Field(default_factory=lambda: {".pcap", ".pcapng", ".cap"})
     scan_interval_seconds: int = 300
     scan_mode: ScanMode = ScanMode.NORMAL
+    quick_scan: QuickScanConfig = Field(default_factory=QuickScanConfig)
 
 
 class LogConfig(BaseModel):

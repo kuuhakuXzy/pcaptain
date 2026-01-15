@@ -21,7 +21,15 @@ pcap:
   
   scan_interval_seconds: 3600  # 1 hour
 
-  scan_mode: fast  # options: normal, fast
+  scan_mode: quick  # options: normal, quick, fast
+
+  # Quick scan (tshark sampling) settings
+  # When scan_mode is "normal", enabling quick_scan will automatically use "quick"
+  # for files >= min_file_size, and only scan `pebc` of bytes.
+  quick_scan:
+    pebc: 0.1
+    min_file_size: 0
+    config_version: v1
 
 log:
   level: INFO

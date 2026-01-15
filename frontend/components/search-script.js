@@ -3,6 +3,7 @@ import {
     API_PATH,
     CHECK_SCAN_FILES_STATUS_INTERVAL,
     MIN_QUERY_LENGTH,
+    SCAN_MODE_TEXT,
     SERVER,
     SERVER_HEALTH_CHECK_INTERVAL,
     SERVER_SCANNING_FILE_STATUS,
@@ -39,6 +40,36 @@ function disappearSearchLoadingSpinner() {
         spinner.classList.remove("spinner-search-visible");
     }
     if(searchBtn) searchBtn.style.display = "inline-block";
+}
+
+async function loadScanConfigTooltip() {
+    // Pull runtime scan configuration for the global tooltip.
+    const tooltipContent = document.getElementById("scanConfigTooltipContent");
+    if (!tooltipContent) {
+        return;
+    }
+    try {
+        const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
+        const config = response.data || {};
+        const scanModeLabel = SCAN_MODE_TEXT[config.scan_mode] || "Full";
+        const pebcLabel =
+            config.scan_mode === "quick" && config.pebc !== null && config.pebc !== undefined && config.pebc !== ""
+                ? config.pebc
+                : "N/A";
+        const minFileSize = config.min_file_size || "0";
+        const configVersion = config.config_version || "v1";
+        if (config.scan_mode === "full") {
+            tooltipContent.textContent = `Scan Mode: ${scanModeLabel}`;
+        } else {
+            tooltipContent.textContent =
+                `Scan Mode: ${scanModeLabel}\n` +
+                `PEBC: ${pebcLabel}\n` +
+                `Min File Size: ${minFileSize}\n` +
+                `Config Version: ${configVersion}`;
+        }
+    } catch (err) {
+        tooltipContent.textContent = "Scan config unavailable";
+    }
 }
 
 //check scan status
@@ -94,6 +125,8 @@ const limitSelect = document.getElementById("limitSelect");
 if (limitSelect) limitSelect.value = "5"; 
 if (sortBySelect) sortBySelect.value = "filename";    
 if (sortOrderSelect) sortOrderSelect.value = "false";
+
+loadScanConfigTooltip();
 
 // Listen to user's items per page
 if (limitSelect) {
@@ -647,7 +680,7 @@ function renderTable(files) {
                 ${renderMatchedHTML(file)}
             </td>
             <td data-label="Size">${formatFileSize(file.size_bytes)}</td>
-            <td data-label="Packet">${file.protocol_packet_count}</td>
+            <td data-label="Packet">${file.total_packets || '-'}</td>
             
         `;
         tbody.appendChild(tr);

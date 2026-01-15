@@ -1,5 +1,5 @@
 import { showToast } from "./toast-script.js";
-import { SERVER, TOAST_STATUS } from "./constant.js";
+import { SCAN_MODE_TEXT, SERVER, TOAST_STATUS } from "./constant.js";
 
 export function formatDate(timestamp) {
     if (!timestamp) return "N/A";
@@ -31,10 +31,29 @@ export function openInfoModal(file, event) {
         const size = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
         return `${size} ${units[i]}`;
     })(file.size_bytes);
-    document.getElementById("infoPackets").innerText = file.protocol_packet_count || 0;
-
+    document.getElementById("infoPackets").innerText = file.total_packets || 0;
+    document.getElementById("infoPacketsScanned").innerText = file.packets_scanned || "N/A";
+    
     document.getElementById("infoModified").innerText = formatDate(file.last_modified);
     document.getElementById("infoScanned").innerText = formatDate(file.last_scanned);
+    const scanModeValue = SCAN_MODE_TEXT[file.scan_mode] || "Full";
+    const pebcValue =
+        file.scan_mode === "quick" && file.pebc !== undefined && file.pebc !== null && String(file.pebc).trim() !== ""
+            ? file.pebc
+            : "N/A";
+    document.getElementById("infoScanMode").innerText = scanModeValue;
+    document.getElementById("infoScanPebc").innerText = pebcValue;
+    document.getElementById("infoScanConfigVersion").innerText = file.config_version || "N/A";
+    const pebcRow = document.getElementById("infoScanPebcRow");
+    const configRow = document.getElementById("infoScanConfigVersionRow");
+    if (file.scan_mode === "full") {
+        if (pebcRow) pebcRow.style.display = "none";
+        if (configRow) configRow.style.display = "none";
+    } else {
+        if (pebcRow) pebcRow.style.display = "";
+        if (configRow) configRow.style.display = "";
+    }
+
 
     renderProtocolTable(file);
 
