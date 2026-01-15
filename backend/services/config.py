@@ -14,7 +14,7 @@ class RedisConfig(BaseModel):
 
 
 class ScanMode(str, Enum):
-    NORMAL = "normal"
+    FULL = "full"
     QUICK = "quick"
     FAST = "fast"
 
@@ -37,7 +37,7 @@ class PcapConfig(BaseModel):
     excluded_protocols: Set[str] = Field(default_factory=set)
     allowed_file_extensions: Set[str] = Field(default_factory=lambda: {".pcap", ".pcapng", ".cap"})
     scan_interval_seconds: int = 300
-    scan_mode: ScanMode = ScanMode.NORMAL
+    scan_mode: ScanMode = ScanMode.FULL
     quick_scan: QuickScanConfig = Field(default_factory=QuickScanConfig)
 
 

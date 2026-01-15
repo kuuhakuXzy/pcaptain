@@ -78,7 +78,7 @@ def get_effective_scan_mode(
 
     - base_scan_mode == 'fast'  -> always 'fast' (fastscan binary)
     - base_scan_mode == 'quick' -> always 'quick' if file size >= min_file_size
-    - base_scan_mode == 'normal'
+    - base_scan_mode == 'full'
     """
     if base_scan_mode == ScanMode.FAST:
         return ScanMode.FAST, None, quick_scan_config_version
@@ -86,7 +86,7 @@ def get_effective_scan_mode(
     if base_scan_mode == ScanMode.QUICK and file_size_bytes >= quick_scan_min_file_size_bytes:
         return ScanMode.QUICK, quick_scan_pebc, quick_scan_config_version
 
-    return ScanMode.NORMAL, None, quick_scan_config_version
+    return ScanMode.FULL, None, quick_scan_config_version
 
 
 def _normalize_scan_param(value: Optional[str]) -> Optional[str]:
@@ -1179,7 +1179,7 @@ class ScanService:
         self,
         pcap_file: str,
         excluded_protocols: Optional[set[str]] = None,
-        scan_mode: ScanMode = ScanMode.NORMAL,
+        scan_mode: ScanMode = ScanMode.FULL,
         quick_threshold_bytes: Optional[int] = None,
     ) -> Optional[Tuple[Dict[str, int], int]]:
         match scan_mode:
@@ -1189,7 +1189,7 @@ class ScanService:
                     pcap_file,
                     excluded_protocols=excluded_protocols,
                 )
-            case ScanMode.NORMAL:
+            case ScanMode.FULL:
                 return await asyncio.to_thread(
                     self.get_protocols_from_pcap_sync,
                     pcap_file,
