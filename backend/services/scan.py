@@ -108,6 +108,19 @@ def _parse_float(value: Optional[str]) -> Optional[float]:
         return None
 
 
+def _parse_int(value: Any) -> Optional[int]:
+    normalized = _normalize_scan_param(value)
+    if normalized is None:
+        return None
+    try:
+        return int(normalized)
+    except ValueError:
+        try:
+            return int(float(normalized))
+        except ValueError:
+            return None
+
+
 def should_rescan_file(
     *,
     current_scan_mode: str,
@@ -242,6 +255,13 @@ class BackfillState(str, Enum):
     FAILED = "failed"
 
 
+class RebuildSearchIndexState(str, Enum):
+    IDLE = "idle"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class ScanService:
     scan_status: Dict[str, Any] = {
         "state": ScanState.IDLE,
@@ -253,6 +273,14 @@ class ScanService:
         "state": BackfillState.IDLE,
         "processed": 0,
         "updated": 0,
+        "total": 0,
+        "message": "Ready",
+    }
+
+    rebuild_searchindex_status: Dict[str, Any] = {
+        "state": RebuildSearchIndexState.IDLE,
+        "processed": 0,
+        "backfilled": 0,
         "total": 0,
         "message": "Ready",
     }
@@ -656,6 +684,154 @@ class ScanService:
         finally:
             if self.backfill_status["state"] != BackfillState.FAILED:
                 self.backfill_status["state"] = BackfillState.IDLE
+
+    def rebuild_search_indexes_sync(self, redis_client: Redis) -> dict:
+        if not redis_client:
+            return {"error": "Redis connection is not available."}
+
+        keys = list(redis_client.scan_iter(f"{PCAP_FILE_KEY_PREFIX}:*"))
+        total = len(keys)
+        if total == 0:
+            redis_client.delete(
+                LEX_INDEX_FILENAME,
+                LEX_INDEX_PATH,
+                SORT_INDEX_FILENAME,
+                SORT_INDEX_PATH,
+                SORT_INDEX_SIZE,
+                SORT_INDEX_PACKET_COUNT,
+            )
+            return {"processed": 0, "backfilled": 0, "total": 0}
+
+        filename_map: dict[str, list[str]] = {}
+        path_map: dict[str, list[str]] = {}
+        size_map: dict[str, int] = {}
+        packet_map: dict[str, int] = {}
+
+        processed = 0
+        backfilled = 0
+
+        for key in keys:
+            processed += 1
+            data = redis_client.hgetall(key)
+            if not data:
+                continue
+
+            file_hash = key.split(":")[-1]
+
+            filename_sort = _normalize_scan_param(data.get("filename_sort"))
+            if not filename_sort:
+                raw = _normalize_scan_param(data.get("filename"))
+                if raw:
+                    filename_sort = raw.lower()
+                    redis_client.hset(key, "filename_sort", filename_sort)
+                    backfilled += 1
+
+            path_sort = _normalize_scan_param(data.get("path_sort"))
+            if not path_sort:
+                raw = _normalize_scan_param(data.get("path"))
+                if raw:
+                    path_sort = raw.lower()
+                    redis_client.hset(key, "path_sort", path_sort)
+                    backfilled += 1
+
+            if filename_sort:
+                filename_map.setdefault(filename_sort, []).append(file_hash)
+            if path_sort:
+                path_map.setdefault(path_sort, []).append(file_hash)
+
+            size_bytes = _parse_int(data.get("size_bytes"))
+            if size_bytes is not None:
+                size_map[file_hash] = max(size_bytes, 0)
+
+            # The score used by SORT_INDEX_PACKET_COUNT has drifted historically;
+            # prefer `total_packets`, fall back to `protocol_packet_count`.
+            packet_count = _parse_int(data.get("total_packets"))
+            if packet_count is None:
+                packet_count = _parse_int(data.get("protocol_packet_count"))
+            packet_map[file_hash] = max(packet_count or 0, 0)
+
+        lex_filename_new = f"{LEX_INDEX_FILENAME}:new"
+        lex_path_new = f"{LEX_INDEX_PATH}:new"
+        filename_new = f"{SORT_INDEX_FILENAME}:new"
+        path_new = f"{SORT_INDEX_PATH}:new"
+        size_new = f"{SORT_INDEX_SIZE}:new"
+        packet_new = f"{SORT_INDEX_PACKET_COUNT}:new"
+
+        pipe = redis_client.pipeline()
+        pipe.delete(lex_filename_new, lex_path_new, filename_new, path_new, size_new, packet_new)
+
+        # Rebuild lex sets (score=0 => zrange is lexicographic)
+        if filename_map:
+            pipe.zadd(lex_filename_new, {k: 0 for k in filename_map.keys()})
+        if path_map:
+            pipe.zadd(lex_path_new, {k: 0 for k in path_map.keys()})
+
+        # Numeric sorts
+        if size_map:
+            pipe.zadd(size_new, size_map)
+        if packet_map:
+            pipe.zadd(packet_new, packet_map)
+
+        # Lex-derived sorts for file hashes
+        for rank, fname in enumerate(sorted(filename_map.keys())):
+            hashes = filename_map.get(fname)
+            if hashes:
+                pipe.zadd(filename_new, {h: rank for h in hashes})
+
+        for rank, fpath in enumerate(sorted(path_map.keys())):
+            hashes = path_map.get(fpath)
+            if hashes:
+                pipe.zadd(path_new, {h: rank for h in hashes})
+
+        pipe.execute()
+
+        # Swap in rebuilt indexes atomically
+        pipe = redis_client.pipeline()
+        pipe.rename(lex_filename_new, LEX_INDEX_FILENAME)
+        pipe.rename(lex_path_new, LEX_INDEX_PATH)
+        pipe.rename(filename_new, SORT_INDEX_FILENAME)
+        pipe.rename(path_new, SORT_INDEX_PATH)
+        pipe.rename(size_new, SORT_INDEX_SIZE)
+        pipe.rename(packet_new, SORT_INDEX_PACKET_COUNT)
+        pipe.execute()
+
+        return {"processed": processed, "backfilled": backfilled, "total": total}
+
+    @with_app_context
+    def rebuild_searchindex_wrapper(self, *, context: AppContext = None):
+        redis = context.redis_client
+        if not redis:
+            logger.error("Redis connection is not available. Rebuild aborted.")
+            return
+
+        try:
+            self.rebuild_searchindex_status["state"] = RebuildSearchIndexState.RUNNING
+            self.rebuild_searchindex_status["processed"] = 0
+            self.rebuild_searchindex_status["backfilled"] = 0
+            self.rebuild_searchindex_status["total"] = 0
+            self.rebuild_searchindex_status["message"] = "Rebuild in progress..."
+            logger.info("Background rebuild-searchindex started.")
+
+            result = self.rebuild_search_indexes_sync(redis)
+            self.rebuild_searchindex_status["processed"] = result.get("processed", 0)
+            self.rebuild_searchindex_status["backfilled"] = result.get("backfilled", 0)
+            self.rebuild_searchindex_status["total"] = result.get("total", 0)
+
+            self.rebuild_searchindex_status["state"] = RebuildSearchIndexState.COMPLETED
+            self.rebuild_searchindex_status["message"] = (
+                "Completed successfully. "
+                f"Rebuilt sort indexes from {self.rebuild_searchindex_status['processed']} keys "
+                f"(backfilled={self.rebuild_searchindex_status['backfilled']})."
+            )
+            logger.info("Background rebuild-searchindex completed.")
+
+        except Exception as e:
+            logger.error("Rebuild-searchindex failed: %s", e)
+            self.rebuild_searchindex_status["state"] = RebuildSearchIndexState.FAILED
+            self.rebuild_searchindex_status["message"] = str(e)
+        finally:
+            if self.rebuild_searchindex_status["state"] != RebuildSearchIndexState.FAILED:
+                self.rebuild_searchindex_status["state"] = RebuildSearchIndexState.IDLE
 
     @with_app_context
     def __schedule_lex_rebuild__(self, delay_seconds: int = 10, *, context: AppContext = None):

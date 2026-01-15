@@ -6,7 +6,7 @@ from fastapi import Depends, Query, Request, HTTPException
 from fastapi.responses import JSONResponse
 import asyncio
 
-from services.scan import ScanState, get_scan_service
+from services.scan import BackfillState, RebuildSearchIndexState, ScanState, get_scan_service
 from services.logger import get_logger
 
 router = APIRouter(tags=["Scan"])
@@ -50,7 +50,7 @@ async def backfill_total_packets_endpoint(
     context: AppContext = Depends(get_app_context),
 ):
     scan_service = get_scan_service()
-    if scan_service.backfill_status.get("state") == "running":
+    if scan_service.backfill_status.get("state") == BackfillState.RUNNING:
         return JSONResponse(
             content={"status": "busy", "message": "A backfill is already running."},
             status_code=409,
@@ -68,6 +68,37 @@ async def backfill_total_packets_endpoint(
 async def backfill_status_endpoint():
     scan_service = get_scan_service()
     return scan_service.backfill_status
+
+
+@router.post(
+    "/backfill/rebuild-searchindex",
+    summary="Rebuild all sort indexes from existing Redis data",
+)
+async def rebuild_searchindex_endpoint(
+    context: AppContext = Depends(get_app_context),
+):
+    scan_service = get_scan_service()
+    if scan_service.rebuild_searchindex_status.get("state") == RebuildSearchIndexState.RUNNING:
+        return JSONResponse(
+            content={
+                "status": "busy",
+                "message": "A rebuild-searchindex job is already running.",
+            },
+            status_code=409,
+        )
+
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(
+        context.thread_executor,
+        lambda: scan_service.rebuild_searchindex_wrapper(),
+    )
+    return JSONResponse(content={"status": "started"})
+
+
+@router.get("/backfill/rebuild-searchindex-status")
+async def rebuild_searchindex_status_endpoint():
+    scan_service = get_scan_service()
+    return scan_service.rebuild_searchindex_status
 
 @router.post("/scan-cancel", summary="Cancel the currently running scan")
 async def cancel_scan():
