@@ -45,6 +45,20 @@ if [ -n "$SCAN_MODE" ]; then
   yq -i '.pcap.scan_mode = env(SCAN_MODE)' "$CONFIG_FILE"
 fi
 
+# Quick scan (tshark sampling) settings
+
+if [ -n "$QUICK_SCAN_PEBC" ]; then
+  yq -i '.pcap.quick_scan.pebc = env(QUICK_SCAN_PEBC)' "$CONFIG_FILE"
+fi
+
+if [ -n "$QUICK_SCAN_MIN_FILE_SIZE" ]; then
+  yq -i '.pcap.quick_scan.min_file_size = env(QUICK_SCAN_MIN_FILE_SIZE)' "$CONFIG_FILE"
+fi
+
+if [ -n "$QUICK_SCAN_CONFIG_VERSION" ]; then
+  yq -i '.pcap.quick_scan.config_version = env(QUICK_SCAN_CONFIG_VERSION)' "$CONFIG_FILE"
+fi
+
 if [ -n "$LOG_LEVEL" ]; then
   yq -i '.log.level = env(LOG_LEVEL)' "$CONFIG_FILE"
 fi

@@ -6,9 +6,10 @@ const API_PATH = Object.freeze({
     SERVER_HEALTH_CHECK_PATH: "health",
     SCAN_STATUS_PATH: "scan-status",
     SEARCH_SUGGESTION: "protocols/suggest",
-    CANCEL_SCAN_PATH: "cancel-scan",
+    SCAN_CANCEL_PATH: "scan-cancel",
     EXCLUDED_PROTOCOLS_PATH: "excluded-protocols",
-    DASHBOARD_SUMMARY_PATH: "dashboard-summary"
+    DASHBOARD_SUMMARY_PATH: "dashboard-summary",
+    SCAN_CONFIG_PATH: "scan-config"
 });
 
 const TOAST_STATUS = Object.freeze({
@@ -41,6 +42,14 @@ export {
     SERVER_SCANNING_FILE_STATUS,
     TOAST_STATUS
 }
+
+
+export const SCAN_MODE_TEXT = {
+    "normal": "Normal",
+    "quick": "Quick",
+    "fast": "Fast"
+};
+
 
 // const SERVER = "http://192.168.56.101:8080/packet-capture-service";
 // const PCAP_REINDEX_PATH = "/api/v2/protocol/scan";

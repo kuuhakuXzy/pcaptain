@@ -38,13 +38,19 @@
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
-            <button id="cancelScanBtn" class="scan-cancel-btn hidden">Cancel Scan</button>
+            <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
             <button id="configBtn" class="config-btn" title="Settings">
                 <i class="fa fa-cog"></i>
             </button>
+            <div class="scan-config-tooltip" id="scanConfigTooltip">
+                <i class="fa fa-info-circle" aria-hidden="true"></i>
+                <div class="scan-config-tooltip-content" id="scanConfigTooltipContent">
+                    Loading scan config...
+                </div>
+            </div>
         </div>
 
         <!-- Status signal -->
