@@ -224,6 +224,7 @@ async def backfill_total_packets() -> dict:
     processed = 0
     updated = 0
     total = len(keys)
+    backfill_status["total"] = total
 
     for key in keys:
         data = await asyncio.to_thread(redis_client.hgetall, key)
@@ -231,6 +232,7 @@ async def backfill_total_packets() -> dict:
             continue
 
         processed += 1
+        backfill_status["processed"] = processed
         existing_total = data.get("total_packets")
         if existing_total not in (None, ""):
             continue
@@ -249,6 +251,7 @@ async def backfill_total_packets() -> dict:
 
         await asyncio.to_thread(redis_client.hset, key, "total_packets", total_packets)
         updated += 1
+        backfill_status["updated"] = updated
 
     return {"processed": processed, "updated": updated, "total": total}
 
