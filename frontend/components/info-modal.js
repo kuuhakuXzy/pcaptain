@@ -46,12 +46,12 @@ export function openInfoModal(file, event) {
     document.getElementById("infoScanConfigVersion").innerText = file.config_version || "N/A";
     const pebcRow = document.getElementById("infoScanPebcRow");
     const configRow = document.getElementById("infoScanConfigVersionRow");
-    if (file.scan_mode === "full" || file.scan_mode === undefined || file.scan_mode === null) {
-        if (pebcRow) pebcRow.style.display = "none";
-        if (configRow) configRow.style.display = "none";
-    } else {
+    if (file.scan_mode === "quick") {
         if (pebcRow) pebcRow.style.display = "";
         if (configRow) configRow.style.display = "";
+    } else {
+        if (pebcRow) pebcRow.style.display = "none";
+        if (configRow) configRow.style.display = "none";
     }
 
 
