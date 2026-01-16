@@ -403,6 +403,133 @@ nav {
     background: #555;
 }
 
+/* Scan Mode Statistics */
+.scan-mode-container {
+    padding: 10px 0;
+}
+
+.scan-mode-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.scan-mode-empty {
+    text-align: center;
+    color: #6b7280;
+    padding: 40px;
+    font-style: italic;
+}
+
+.scan-mode-card {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border-left: 4px solid;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.scan-mode-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.scan-mode-card.scan-mode-full {
+    border-left-color: #16a34a;
+}
+
+.scan-mode-card.scan-mode-quick {
+    border-left-color: #facc15;
+}
+
+.scan-mode-card.scan-mode-fast {
+    border-left-color: #f97316;
+}
+
+.scan-mode-icon-large {
+    flex-shrink: 0;
+}
+
+.scan-mode-badge {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.scan-mode-badge-full {
+    background-color: #16a34a;
+    color: white;
+}
+
+.scan-mode-badge-quick {
+    background-color: white;
+    border: 3px solid #facc15;
+    color: #facc15;
+}
+
+.scan-mode-badge-fast {
+    background-color: #f97316;
+    color: white;
+}
+
+.scan-mode-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.scan-mode-label {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+.scan-mode-percentage {
+    font-size: 28px;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 2px;
+}
+
+.scan-mode-count {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.scan-mode-bar-container {
+    flex: 0 0 200px;
+    height: 12px;
+    background: #e5e7eb;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.scan-mode-bar {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.5s ease;
+}
+
+.scan-mode-bar-full {
+    background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);
+}
+
+.scan-mode-bar-quick {
+    background: linear-gradient(90deg, #facc15 0%, #fde047 100%);
+}
+
+.scan-mode-bar-fast {
+    background: linear-gradient(90deg, #f97316 0%, #fb923c 100%);
+}
+
 @media (max-width: 768px) {
     header {
         flex-direction: column;
@@ -423,6 +550,15 @@ nav {
 
     .diversity-chart {
         flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .scan-mode-card {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .scan-mode-bar-container {
         width: 100%;
     }
 }

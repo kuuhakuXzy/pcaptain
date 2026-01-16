@@ -115,6 +115,7 @@ async def build_dashboard_summary(context: AppContext):
         directory_dist = defaultdict(int)
         extension_dist = defaultdict(int)
         rate_dist = defaultdict(int)
+        scan_mode_dist = defaultdict(int)
         total_files = 0
 
         cursor = 0
@@ -136,8 +137,12 @@ async def build_dashboard_summary(context: AppContext):
                 protocols = data.get("protocols", "").split(',')
                 last_modified = float(data.get("last_modified", now))
                 file_path = data.get("path", "")
+                scan_mode = data.get("scan_mode", "full").lower()
 
                 total_files += 1
+
+                # Scan mode distribution
+                scan_mode_dist[scan_mode] += 1
 
                 # Size distribution
                 size_bucket = _bucketize(size_bytes, SIZE_BUCKETS)
@@ -203,6 +208,7 @@ async def build_dashboard_summary(context: AppContext):
         summary = {
             "generated_at": now,
             "total_files": total_files,
+            "scan_mode_distribution": dict(scan_mode_dist),
             "pcap_size_distribution": dict(size_dist),
             "packet_count_distribution": dict(packet_dist),
             "protocol_presence_distribution": dict(protocol_presence),

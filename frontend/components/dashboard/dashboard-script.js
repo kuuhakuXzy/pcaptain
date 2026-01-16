@@ -98,6 +98,9 @@ function renderDashboard(data) {
     renderDirectoryTable(data.directory_distribution || {});
     renderExtensionTable(data.extension_distribution || {});
 
+    // Render scan mode stats
+    renderScanModeStats(data.scan_mode_distribution || {}, data.total_files || 0);
+
     // Render charts
     charts.sizeDistChart = createBarChart(
         'sizeDistChart',
@@ -138,6 +141,44 @@ function renderDashboard(data) {
         'Files',
         ['<64B', '64-128B', '128-256B', '256-512B', '512B-1KB', '1KB-MTU', '>MTU', '(small sample)', '(no packets)']
     );
+}
+
+function renderScanModeStats(scanModeData, totalFiles) {
+    const container = document.getElementById('scanModeStats');
+    container.innerHTML = '';
+
+    if (totalFiles === 0) {
+        container.innerHTML = '<div class="scan-mode-empty">No scan data available</div>';
+        return;
+    }
+
+    const modes = [
+        { key: 'full', label: 'Full Scan', icon: '✓', colorClass: 'full' },
+        { key: 'quick', label: 'Quick Scan', icon: '⚡', colorClass: 'quick' },
+        { key: 'fast', label: 'Fast Scan', icon: '<i class="fa fa-rocket"></i>', colorClass: 'fast' }
+    ];
+
+    modes.forEach(mode => {
+        const count = scanModeData[mode.key] || 0;
+        const percentage = totalFiles > 0 ? ((count / totalFiles) * 100).toFixed(1) : 0;
+
+        const modeCard = document.createElement('div');
+        modeCard.className = `scan-mode-card scan-mode-${mode.colorClass}`;
+        modeCard.innerHTML = `
+            <div class="scan-mode-icon-large">
+                <span class="scan-mode-badge scan-mode-badge-${mode.colorClass}">${mode.icon}</span>
+            </div>
+            <div class="scan-mode-details">
+                <div class="scan-mode-label">${mode.label}</div>
+                <div class="scan-mode-percentage">${percentage}%</div>
+                <div class="scan-mode-count">${count.toLocaleString()} files</div>
+            </div>
+            <div class="scan-mode-bar-container">
+                <div class="scan-mode-bar scan-mode-bar-${mode.colorClass}" style="width: ${percentage}%"></div>
+            </div>
+        `;
+        container.appendChild(modeCard);
+    });
 }
 
 function renderDirectoryTable(data) {
