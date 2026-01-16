@@ -435,6 +435,73 @@ thead tr {
     text-align: center;
 }
 
+
+.thMode {
+    width: 110px;
+    text-align: center;
+}
+
+.mode-cell {
+    text-align: center;
+}
+
+.scan-mode-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    cursor: default;
+}
+
+.scan-mode-icon-full {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background-color: #16a34a;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scan-mode-icon-quick {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background-color: #ffffff;
+    border: 2px solid #facc15;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transform: rotate(-12deg);
+}
+
+.scan-mode-icon-fast {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background-color: #f97316;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+
+    i {
+        color: #ffffff;
+    }
+}
+
+.text-green-600 {
+    color: #16a34a;
+}
+
+.text-yellow-600 {
+    color: #ca8a04;
+}
+
 /* Pop-up */
 
 .modal {

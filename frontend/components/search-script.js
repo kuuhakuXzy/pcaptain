@@ -647,6 +647,38 @@ async function checkScanStateOnReady() {
     }
 }
 
+function getScanModeBadgeHtml(file) {
+    const scanModeRaw = (file.scan_mode || "").toLowerCase();
+    const isQuick = scanModeRaw === "quick";
+    const isFast = scanModeRaw === "fast";
+    const pebcValue =
+        isQuick && file.pebc !== undefined && file.pebc !== null && String(file.pebc).trim() !== ""
+            ? String(file.pebc).trim()
+            : "N/A";
+
+    let tooltipText = "Full Scan";
+    let badgeClasses = "scan-mode-icon text-green-600";
+    let iconHtml = `<span class="scan-mode-icon scan-mode-icon-full" aria-hidden="true">✓</span>`;
+
+    if (isQuick) {
+        tooltipText = `Quick Scan (${pebcValue})`;
+        badgeClasses = "scan-mode-icon text-yellow-600";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-quick" aria-hidden="true">⚡</span>`;
+    } else if (isFast) {
+        tooltipText = "Fast Scan";
+        badgeClasses = "scan-mode-icon";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-fast" aria-hidden="true">
+                        <i class="fa fa-rocket"></i>
+                    </span>`;
+    }
+
+    return `
+        <span class="${badgeClasses}" title="${tooltipText}" aria-label="${tooltipText}">
+            ${iconHtml}
+        </span>
+    `;
+}
+
 
 function renderTable(files) {
     const tbody = document.getElementById('resultBody');
@@ -671,6 +703,9 @@ function renderTable(files) {
             </td>
             <td data-label="Info"> 
                 <button id="${btnId}" class="info-btn" title="View Details">i</button>
+            </td>
+            <td data-label="Mode" class="mode-cell">
+                ${getScanModeBadgeHtml(file)}
             </td>
             <td data-label="Path">
                 ${file.path} 
