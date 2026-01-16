@@ -1,8 +1,13 @@
 import { showToast } from "./toast-script.js";
 import { API_PATH, SERVER, TOAST_STATUS } from "./constant.js";
 
+let isInitialized = false;
+
 // Load excluded protocols from backend
 async function loadExcludedProtocols() {
+    const excludedProtocolsInput = document.getElementById("excludedProtocolsInput");
+    if (!excludedProtocolsInput) return;
+    
     try {
         const response = await axios.get(`${SERVER}${API_PATH.EXCLUDED_PROTOCOLS_PATH}`);
         const protocols = response.data || [];
@@ -13,16 +18,18 @@ async function loadExcludedProtocols() {
     }
 }
 
-
-document.addEventListener("dynamic-dom-ready", () => {
-    const configBtn = document.getElementById("configBtn");
+function initializeConfigModal() {
+    if (isInitialized) return;
+    
     const configModal = document.getElementById("configModal");
+    if (!configModal) return;
+    isInitialized = true;
+    
+    const configBtn = document.getElementById("configBtn");
     const closeConfigModal = document.getElementById("closeConfigModal");
     const excludedProtocolsInput = document.getElementById("excludedProtocolsInput");
     const resetExcludedBtn = document.getElementById("resetExcludedBtn");
     const saveExcludedBtn = document.getElementById("saveExcludedBtn");
-
-    if (!configModal) return;
 
     // Open config modal
     if (configBtn) {
@@ -107,5 +114,18 @@ document.addEventListener("dynamic-dom-ready", () => {
                 );
             }
         });
+    }
+}
+
+// Listen for both events to ensure initialization happens
+document.addEventListener("dynamic-dom-ready", initializeConfigModal);
+document.addEventListener("DOMContentLoaded", initializeConfigModal);
+
+// Handle bfcache restoration (when navigating back)
+window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+        // Page was restored from bfcache
+        isInitialized = false;
+        initializeConfigModal();
     }
 });
