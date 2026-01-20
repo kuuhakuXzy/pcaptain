@@ -3,20 +3,26 @@ fast_scan — quick protocol inference from pcap files
 
 Overview
 --------
-A tiny, fast C++ tool that walks packet headers and emits a simple protocol path (e.g. "eth:ip:tcp:https"). The scanner uses libpcap to read files and a small built-in port->application table for inference.
+A small, fast C++ tool that walks packet headers and emits a simple protocol path (for example: "eth:ip:tcp:https"). The scanner reads pcap files with libpcap and uses a lightweight port-to-application table for basic inference.
 
 Prerequisites
 -------------
-- `g++` (or another C++17-capable compiler)
-- `libpcap` development headers (install package `libpcap-dev` on Debian/Ubuntu)
+- A C++17-capable compiler such as `g++`.
+- libpcap development headers (Debian/Ubuntu: `libpcap-dev`).
 
 Build
 -----
 From the `fast_scan` directory run:
 
 ```bash
-g++ -O3 -std=c++17 fast_scan.cpp -lpcap -o fastscan
+g++ -O3 -std=c++17 \
+    -Ilib \
+    fast_scan.cpp src/scanner.cpp src/inference.cpp \
+    -lpcap \
+    -o fastscan
 ```
+
+If your system installs headers in non-standard locations, add appropriate `-I` or linker flags.
 
 Run
 ---
@@ -26,42 +32,32 @@ Usage:
 ./fastscan path/to/file.pcap > output.txt
 ```
 
-Each line of `output.txt` is a colon-separated protocol path detected in a packet (examples: `eth:ip:tcp:http`, `ipv6:udp:dns`).
+Each line of `output.txt` is a colon-separated protocol path detected in a packet (examples: `eth:ip:tcp:http`, `ipv6:udp:dns`). For summaries, run `sort | uniq -c` on the output.
 
-Update inference (well-known ports)
-----------------------------------
-The inference table is defined in [well_know_port.h](well_know_port.h). To add or change entries:
-
-1. Open `well_know_port.h` and edit the `init_port_table()` function.
-2. Add a line using the `set()` helper, for example:
-
-```cpp
-set(12345, BIT_TCP | BIT_UDP, "myproto");
-```
-
-- `BIT_TCP`, `BIT_UDP`, `BIT_SCTP`, `BIT_DCCP` are defined at the top of `well_know_port.h`.
-- The lookup uses the smaller of source/destination port as the key (see `lookup_port`).
-
-After editing, rebuild with the same `g++` command above.
+Inference (well-known ports)
+----------------------------
+Port-based inference is implemented in the project's source (see `src/inference.cpp`). To change or extend the port mappings, edit the port table in the source and rebuild.
 
 Files
 -----
 - Source: [fast_scan/fast_scan.cpp](fast_scan/fast_scan.cpp)
-- Port table: [fast_scan/well_know_port.h](fast_scan/well_know_port.h)
+- Implementation: [src/inference.cpp](src/inference.cpp), [src/scanner.cpp](src/scanner.cpp)
+- Tshark protocol list: [tshark_protocol_code.txt](tshark_protocol_code.txt)
 
 Notes
 -----
 - Link with `-lpcap` is required.
 - The tool reads offline pcap files via libpcap and prints inferred protocol paths to stdout; redirect as needed.
-- For large captures, consider piping output to `sort | uniq -c` to summarise occurrences.
 
 Tshark supported protocols list
-file: [fast_scan/tshark_protocol_code.txt](fast_scan/tshark_protocol_code.txt)
+--------------------------------
+Create/update `tshark_protocol_code.txt` with:
+
 ```bash
-tshark -G fields | awk -F'\t' '$1=="P"{print $2 "\t" $3}' > tshark_protocol_code.txt 
+tshark -G fields | awk -F'\t' '$1=="P"{print $2 "\t" $3}' > tshark_protocol_code.txt
 ```
 
 License
 -------
-No license specified — reuse at your discretion or add a LICENSE file.
+No license specified — add a LICENSE file if you need explicit reuse terms.
 
