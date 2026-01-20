@@ -165,7 +165,7 @@ async def get_protocols_from_pcap(pcap_file: str) -> Optional[Dict[str, int]]:
     return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file)
 
 def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
-    command = ['capinfos', '-c', pcap_file]
+    command = ['capinfos', '-M', '-c', pcap_file]
 
     try:
         result = subprocess.run(
@@ -224,6 +224,7 @@ async def backfill_total_packets() -> dict:
     processed = 0
     updated = 0
     total = len(keys)
+    backfill_status["total"] = total
 
     for key in keys:
         data = await asyncio.to_thread(redis_client.hgetall, key)
@@ -231,6 +232,7 @@ async def backfill_total_packets() -> dict:
             continue
 
         processed += 1
+        backfill_status["processed"] = processed
         existing_total = data.get("total_packets")
         if existing_total not in (None, ""):
             continue
@@ -242,10 +244,14 @@ async def backfill_total_packets() -> dict:
 
         total_packets = await get_total_packets_from_pcap(file_path)
         if total_packets is None:
-            total_packets = ""
+            logger.warning(
+                f"Skipping total_packets backfill due to capinfos error: {file_path}"
+            )
+            continue
 
         await asyncio.to_thread(redis_client.hset, key, "total_packets", total_packets)
         updated += 1
+        backfill_status["updated"] = updated
 
     return {"processed": processed, "updated": updated, "total": total}
 
@@ -326,6 +332,9 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                     file_size = await asyncio.to_thread(os.path.getsize, file_path)
                     total_packets = await get_total_packets_from_pcap(file_path)
                     if total_packets is None:
+                        logger.warning(
+                            f"capinfos failed for {file_path}; continuing without total_packets"
+                        )
                         total_packets = ""
 
                     file_hash = await calculate_sha256(file_path)
