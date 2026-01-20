@@ -39,6 +39,42 @@ body {
     margin-bottom: 20px;
 }
 
+.scan-config-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 2px;
+}
+
+.scan-config-tooltip i {
+    color: #0060A9;
+    font-size: 16px;
+}
+
+.scan-config-tooltip-content {
+    position: absolute;
+    right: 0;
+    top: 130%;
+    background: #0b1e2d;
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: pre-line;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease;
+    min-width: 0;
+    width: max-content;
+    z-index: 20;
+}
+
+.scan-config-tooltip:hover .scan-config-tooltip-content {
+    opacity: 1;
+    visibility: visible;
+}
+
 .search-box input {
     flex: 1;
     padding: 10px;
@@ -326,6 +362,56 @@ thead tr {
 .thInfo {
     width: 100px;
     text-align: center;
+}
+
+.thMode {
+    width: 110px;
+    text-align: center;
+}
+
+.mode-cell {
+    text-align: center;
+}
+
+.scan-mode-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+    cursor: default;
+}
+
+.scan-mode-icon-full {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background-color: #16a34a;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.scan-mode-icon-quick {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background-color: #ffffff;
+    border: 2px solid #facc15;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    transform: rotate(-12deg);
+}
+
+.text-green-600 {
+    color: #16a34a;
+}
+
+.text-yellow-600 {
+    color: #ca8a04;
 }
 
 /* Pop-up */

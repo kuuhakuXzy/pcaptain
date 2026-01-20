@@ -4,6 +4,7 @@ const API_PATH = Object.freeze({
     PCAP_SEARCHING_PATH: "search",
     SERVER_HEALTH_CHECK_PATH: "health",
     SCAN_STATUS_PATH: "scan-status",
+    SCAN_CONFIG_PATH: "scan-config",
     SEARCH_SUGGESTION: "protocols/suggest",
     SCAN_CANCEL_PATH: "scan-cancel"
 });

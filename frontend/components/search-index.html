@@ -23,6 +23,12 @@
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn" disabled>Cancel</button>
+            <div class="scan-config-tooltip" id="scanConfigTooltip">
+                <i class="fa fa-info-circle" aria-hidden="true"></i>
+                <div class="scan-config-tooltip-content" id="scanConfigTooltipContent">
+                    Loading scan config...
+                </div>
+            </div>
 
         </div>
 
@@ -67,6 +73,7 @@
                     <tr>
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
+                        <th class="thMode">Mode</th>
                         <th>Path</th>
                         <th>Size</th>
                         <th>Packet</th>
@@ -124,6 +131,21 @@
                     </div>
                     <div class="info-row">
                         <strong>Last Scanned:</strong> <span id="infoScanned"></span>
+                    </div>
+                    <div class="info-row">
+                        <strong>Packets Scanned:</strong>  <span id="infoPacketsScanned"></span>
+                    </div>
+
+                    <hr class="info-divider">
+
+                    <div class="info-row">
+                        <strong>Scan Mode:</strong> <span id="infoScanMode"></span>
+                    </div>
+                    <div class="info-row" id="infoScanPebcRow">
+                        <strong>PEBC:</strong> <span id="infoScanPebc"></span>
+                    </div>
+                    <div class="info-row" id="infoScanConfigVersionRow">
+                        <strong>Config Version:</strong> <span id="infoScanConfigVersion"></span>
                     </div>
 
                     <hr class="info-divider">
