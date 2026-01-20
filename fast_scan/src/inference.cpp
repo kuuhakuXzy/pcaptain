@@ -5,11 +5,13 @@ PortInfo::PortInfo() {
         _apps.fill(nullptr);
     }
 
+// Associate an application protocol name with a specific L4 protocol
 void PortInfo::set(L4Proto proto, const char* app) {
     _apps[idx(proto)] = app;
     _valid = true;
 }
 
+// Retrieve application protocol name for a given L4 protocol
 const char* PortInfo::get(L4Proto proto) const {
     return _apps[idx(proto)];
 }
@@ -19,7 +21,7 @@ bool PortInfo::valid() const {
 }
 
 
-// PortTable methods
+// Register application protocol for multiple L4 protocols on a specific port
 void PortTable::set(uint16_t port, std::initializer_list<L4Proto> protos, const char* app) {
     PortInfo& info = _table[port];
     for (L4Proto proto : protos) {
@@ -27,6 +29,7 @@ void PortTable::set(uint16_t port, std::initializer_list<L4Proto> protos, const 
     }
 }
 
+// Look up port info using the lower of source/destination ports (well-known ports are typically lower)
 const PortInfo* PortTable::lookup(uint16_t sport, uint16_t dport) const {
     uint16_t key = sport < dport ? sport : dport;
     return _table[key].valid() ? &_table[key] : nullptr;

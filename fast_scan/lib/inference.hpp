@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 
+// Transport layer (Layer 4) protocol types
 enum class L4Proto : uint8_t {
     TCP = 0,
     UDP,
@@ -12,6 +13,7 @@ enum class L4Proto : uint8_t {
     COUNT
 };
 
+// Maps L4 protocols to application protocol names for a specific port
 class PortInfo {
 public:
     PortInfo();
@@ -29,16 +31,20 @@ private:
     bool _valid = false;
 };
 
+// Port number to application protocol mapping table (65536 entries)
 class PortTable {
 public:
+    // Register an application protocol for a specific port and L4 protocols
     void set(uint16_t port,
              std::initializer_list<L4Proto> protos,
              const char* app);
 
+    // Find application protocol using source and destination ports
     const PortInfo* lookup(uint16_t sport, uint16_t dport) const;
 
 private:
     PortInfo _table[65536];
 };
 
+// Populate port table with well-known port assignments (HTTP, SSH, DNS, etc.)
 void init_port_table(PortTable& ports);

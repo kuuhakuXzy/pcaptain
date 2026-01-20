@@ -10,11 +10,13 @@
 #include <iostream>
 
 
+// Initialize scanner with output sink and populate port-to-protocol mapping table
 Scanner::Scanner(OutputSink& sink) : _sink(sink)
 {
     init_port_table(_ports);
 }
 
+// Parse transport layer (L4) protocol and identify application protocol from port numbers
 void Scanner::handle_l4(uint8_t proto,
                         const u_char* l4,
                         size_t caplen,
@@ -26,8 +28,10 @@ void Scanner::handle_l4(uint8_t proto,
     const char* pname;
 
     if (proto == IPPROTO_TCP) {
+        // Ensure TCP header fits within captured data
         if (offset + sizeof(tcphdr) > caplen) return;
         auto* tcp = (const tcphdr*)l4;
+        // ntohs() converts network byte order (big-endian) to host byte order
         sport = ntohs(tcp->th_sport);
         dport = ntohs(tcp->th_dport);
         p = L4Proto::TCP;
@@ -54,15 +58,18 @@ void Scanner::handle_l4(uint8_t proto,
 
     path.add(pname);
 
+    // Look up application protocol based on source and destination ports
     const PortInfo* info = _ports.lookup(sport, dport);
     if (!info) return;
 
     const char* app = info->get(p);
     if (!app) return;
 
+    // Add application protocol to path (e.g., "http", "dns", "ssh")
     path.add(app);
 }
 
+// Parse IPv4 header and delegate to L4 handler
 void Scanner::handle_ipv4(const pcap_pkthdr* hdr,
                           const u_char* packet,
                           size_t offset,
@@ -73,7 +80,9 @@ void Scanner::handle_ipv4(const pcap_pkthdr* hdr,
     path.add("ip");
 
     const ip* iphdr = (const ip*)(packet + offset);
+    // IP header length is in 32-bit words, multiply by 4 for bytes
     size_t ip_len = iphdr->ip_hl * 4;
+    // Minimum IPv4 header is 20 bytes
     if (ip_len < 20) return;
 
     offset += ip_len;
@@ -82,6 +91,7 @@ void Scanner::handle_ipv4(const pcap_pkthdr* hdr,
     handle_l4(iphdr->ip_p, packet + offset, hdr->caplen, offset, path);
 }
 
+// Parse IPv6 header and delegate to L4 handler
 void Scanner::handle_ipv6(const pcap_pkthdr* hdr,
                           const u_char* packet,
                           size_t offset,
@@ -92,11 +102,13 @@ void Scanner::handle_ipv6(const pcap_pkthdr* hdr,
     path.add("ipv6");
 
     const ip6_hdr* ip6 = (const ip6_hdr*)(packet + offset);
+    // IPv6 header is fixed 40 bytes (unlike IPv4 which has variable length)
     offset += sizeof(ip6_hdr);
 
     handle_l4(ip6->ip6_nxt, packet + offset, hdr->caplen, offset, path);
 }
 
+// Entry point for packet processing: determines data link type and starts protocol chain
 void Scanner::handle_packet(const pcap_pkthdr* hdr,
                             const u_char* packet,
                             int dlt)
@@ -104,12 +116,14 @@ void Scanner::handle_packet(const pcap_pkthdr* hdr,
     ProtoPath path;
 
     switch (dlt) {
+        // DLT_EN10MB is Ethernet (10 Megabit)
         case DLT_EN10MB: {
             if (hdr->caplen < sizeof(ether_header)) return;
 
             path.add("eth");
 
             auto* eth = (const ether_header*)packet;
+            // Convert Ethernet type field from network to host byte order
             uint16_t type = ntohs(eth->ether_type);
             size_t offset = sizeof(ether_header);
 
@@ -120,7 +134,9 @@ void Scanner::handle_packet(const pcap_pkthdr* hdr,
             break;
         }
 
+        // DLT_RAW is raw IP packets (no link layer header)
         case DLT_RAW: {
+            // First 4 bits of IP header contain version number (4 or 6)
             uint8_t v = packet[0] >> 4;
             if (v == 4)
                 handle_ipv4(hdr, packet, 0, path);
@@ -130,6 +146,7 @@ void Scanner::handle_packet(const pcap_pkthdr* hdr,
         }
     }
 
+    // Output the protocol chain (e.g., "eth:ip:tcp:http")
     if (!path.empty()) {
         path.write_to(_sink);
     }
