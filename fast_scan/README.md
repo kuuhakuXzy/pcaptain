@@ -7,11 +7,32 @@ A small, fast C++ tool that walks packet headers and emits a simple protocol pat
 
 Prerequisites
 -------------
-- A C++17-capable compiler such as `g++`.
-- libpcap development headers (Debian/Ubuntu: `libpcap-dev`).
+- A C++17-capable compiler such as `g++` or `clang`.
+- libpcap development headers (Debian/Ubuntu: `libpcap-dev`, macOS: via Homebrew `brew install libpcap`).
+- CMake 3.12 or higher (optional, for cross-platform builds).
 
 Build
 -----
+
+### Option 1: CMake (recommended for cross-platform)
+
+From the `fast_scan` directory run:
+
+```bash
+mkdir build
+cd build
+cmake ..
+make
+```
+
+The executable `fastscan` will be in the `build` directory. To install system-wide:
+
+```bash
+sudo make install
+```
+
+### Option 2: Direct compilation
+
 From the `fast_scan` directory run:
 
 ```bash

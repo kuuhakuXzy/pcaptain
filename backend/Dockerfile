@@ -4,13 +4,20 @@ WORKDIR /build
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        libpcap-dev && \
-    rm -rf /var/lib/apt/lists/
+        cmake \
+        libpcap-dev \
+        pkg-config && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY fast_scan/fast_scan.cpp .
-COPY fast_scan/well_known_port.h .
+# Copy entire fast_scan project
+COPY fast_scan/ .
 
-RUN g++ -O3 -std=c++17 fast_scan.cpp -lpcap -o fastscan
+# Build with CMake
+RUN rm -rf build && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make
 
 FROM python:3.10-slim
 
@@ -23,8 +30,8 @@ RUN apt-get update && \
     chmod +x /usr/local/bin/yq && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy compiled fastscan binary
-COPY --from=fastscan-builder /build/fastscan /usr/local/bin/fastscan
+# Copy compiled fastscan binary from build directory
+COPY --from=fastscan-builder /build/build/fastscan /usr/local/bin/fastscan
 
 WORKDIR /app
 
