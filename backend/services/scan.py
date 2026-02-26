@@ -643,6 +643,9 @@ class ScanService:
 
             total_packets = await get_total_packets_from_pcap(file_path)
             if total_packets is None:
+                logger.warning(
+                    f"capinfos failed for {file_path}; continuing without total_packets"
+                )
                 total_packets = ""
 
             await asyncio.to_thread(redis_client.hset, key, "total_packets", total_packets)

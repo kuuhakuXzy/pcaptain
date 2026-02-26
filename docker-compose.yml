@@ -27,6 +27,7 @@ services:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
       - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}:ro"
+      - "./backend/config/config.yaml:/app/config/config.yaml"
     environment:
       - PORT=${BE_INTERNAL_PORT}
       - PCAP_ROOT_DIRECTORY=${PCAP_MOUNTED_DIRECTORY}
