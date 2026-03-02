@@ -28,8 +28,54 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from fastapi import BackgroundTasks
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__) 
+
 # --- Configuration ---
 load_dotenv()
+
+def parse_bool(value: Optional[str], default: bool = False) -> bool:
+    """Parse common string booleans with a default fallback."""
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "y", "on"):
+        return True
+    if normalized in ("0", "false", "no", "n", "off"):
+        return False
+    raise ValueError(f"Invalid boolean value: '{value}'")
+
+def parse_size_bytes(value: Optional[str], default: int) -> int:
+    """Parse human-friendly size strings like 500m/1g into bytes."""
+    if value is None:
+        return default
+    stripped = value.strip()
+    if not stripped:
+        return default
+    match = re.fullmatch(r"(?i)\s*(\d+(?:\.\d+)?)\s*([kmgt]?)\s*", stripped)
+    if not match:
+        raise ValueError(f"Invalid size value: '{value}'")
+    number_str, suffix = match.groups()
+    number = float(number_str)
+    if number < 0:
+        raise ValueError(f"Size value must be non-negative: '{value}'")
+    multipliers = {
+        "": 1,
+        "k": 1024,
+        "m": 1024 ** 2,
+        "g": 1024 ** 3,
+        "t": 1024 ** 4,
+    }
+    multiplier = multipliers[suffix.lower()]
+    return int(number * multiplier)
+
+def get_effective_scan_mode(file_size_bytes: int) -> str:
+    """Compute whether a file should be scanned in full or quick mode."""
+    if not QUICK_SCAN:
+        return "full"
+    if file_size_bytes < QUICK_SCAN_MIN_FILE_SIZE:
+        return "full"
+    return "quick"
 
 PCAP_DIRECTORIES_STR = os.getenv("PCAP_MOUNTED_DIRECTORY", "pcaps")
 PCAP_DIRECTORIES = [path.strip() for path in PCAP_DIRECTORIES_STR.split(',')]
@@ -51,8 +97,90 @@ if BASE_URL:
 
 AUTOCOMPLETE_KEY = "pcap:protocols:autocomplete"
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__) 
+#--Quick scan config
+#--example: QUICK_SCAN=true
+#-----QUICK_SCAN_PEBC=0.10
+#-----QUICK_SCAN_MIN_FILE_SIZE=50m / 1g / etc.
+#-----QUICK_SCAN_CONFIG_VERSION=v1.0
+
+QUICK_SCAN = parse_bool(os.getenv("QUICK_SCAN"), default=False)
+QUICK_SCAN_PEBC = float(os.getenv("QUICK_SCAN_PEBC", "1.0"))
+if QUICK_SCAN_PEBC <= 0 or QUICK_SCAN_PEBC > 1:
+    raise ValueError("QUICK_SCAN_PEBC must be > 0 and <= 1")
+QUICK_SCAN_MIN_FILE_SIZE_RAW = os.getenv("QUICK_SCAN_MIN_FILE_SIZE")
+QUICK_SCAN_MIN_FILE_SIZE = parse_size_bytes(QUICK_SCAN_MIN_FILE_SIZE_RAW, default=0)
+QUICK_SCAN_MIN_FILE_SIZE_DISPLAY = (
+    QUICK_SCAN_MIN_FILE_SIZE_RAW.strip()
+    if QUICK_SCAN_MIN_FILE_SIZE_RAW and QUICK_SCAN_MIN_FILE_SIZE_RAW.strip()
+    else str(QUICK_SCAN_MIN_FILE_SIZE)
+)
+QUICK_SCAN_CONFIG_VERSION = os.getenv("QUICK_SCAN_CONFIG_VERSION", "v1")
+
+def _normalize_scan_param(value: Optional[str]) -> Optional[str]:
+    """Normalize empty strings and whitespace to None."""
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped if stripped else None
+
+def _parse_pebc(value: Optional[str]) -> Optional[float]:
+    """Parse a PEBC string into a float when possible."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+async def ensure_scan_params(
+    pcap_key: str,
+    existing: Optional[Dict[str, str]] = None
+) -> bool:
+    """Ensure scan metadata exists for a pcap key; backfill defaults when missing."""
+    if not redis_client:
+        return False
+    if existing is None:
+        try:
+            existing = await asyncio.to_thread(redis_client.hgetall, pcap_key)
+        except Exception as e:
+            logger.warning(f"Failed to read scan params for {pcap_key}: {e}")
+            return False
+    scan_mode = _normalize_scan_param(existing.get("scan_mode"))
+    pebc = _normalize_scan_param(existing.get("pebc"))
+    config_version = _normalize_scan_param(existing.get("config_version"))
+    if scan_mode and config_version:
+        if scan_mode == "full" or pebc is not None:
+            return True
+    defaults = {
+        "scan_mode": "full",
+        "config_version": QUICK_SCAN_CONFIG_VERSION,
+        "pebc": "",
+    }
+    await asyncio.to_thread(redis_client.hset, pcap_key, mapping=defaults)
+    return False
+
+def should_scan_file(
+    current_scan_mode: str,
+    current_pebc: Optional[float],
+    current_config_version: str,
+    stored_scan_mode: Optional[str],
+    stored_pebc: Optional[float],
+    stored_config_version: Optional[str],
+) -> bool:
+    """Decide whether a file requires a rescan based on scan parameters."""
+    if current_scan_mode == "full" and stored_scan_mode == "quick":
+        return True
+    if (
+        current_scan_mode == "quick"
+        and stored_scan_mode == "quick"
+        and current_pebc is not None
+        and stored_pebc is not None
+        and current_pebc > stored_pebc
+    ):
+        return True
+    if current_config_version != stored_config_version:
+        return True
+    return False
 
 # --- Redis Connection ---
 try:
@@ -82,15 +210,28 @@ def calculate_sha256_sync(file_path: str) -> str:
 async def calculate_sha256(file_path: str) -> str:
     return await asyncio.to_thread(calculate_sha256_sync, file_path)
 
-def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
-    command = [
-        'tshark', '-r', pcap_file,
-        '-T', 'fields',
-        '-e', 'frame.protocols'
-    ]
+def get_protocols_from_pcap_sync(
+    pcap_file: str,
+    scan_mode: str = "full",
+    quick_threshold_bytes: Optional[int] = None
+) -> Optional[tuple[Dict[str, int], int]]:
+    """Extract protocol counts via tshark with optional quick-scan thresholding."""
+    if scan_mode == "quick":
+        command = [
+            "tshark", "-r", pcap_file,
+            "-T", "fields",
+            "-e", "frame.len",
+            "-e", "frame.protocols",
+            "-E", "separator=\t",
+        ]
+    else:
+        command = [
+            "tshark", "-r", pcap_file,
+            "-T", "fields",
+            "-e", "frame.protocols",
+        ]
 
     try:
-        
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -98,6 +239,94 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
             text=True
         )
         scan_process["tshark"] = process
+
+        protocol_counts: Dict[str, int] = {}
+
+        if scan_mode == "quick":
+            bytes_scanned = 0
+            packets_scanned = 0
+            threshold = quick_threshold_bytes or 0
+            threshold_reached = False
+            logger.info(
+                "Quick scan tshark started for %s (pebc=%s, min_file_size=%s, config_version=%s threshold_bytes=%s)",
+                pcap_file,
+                QUICK_SCAN_PEBC, 
+                QUICK_SCAN_MIN_FILE_SIZE_DISPLAY,
+                QUICK_SCAN_CONFIG_VERSION,
+                threshold
+            )
+            if threshold <= 0:
+                logger.warning("Quick scan threshold is <= 0 for %s; skipping scan", pcap_file)
+                process.terminate()
+                return {}, 0
+
+            while True:
+                if scan_cancel_event.is_set():
+                    logger.info(f"Scan cancellation requested. Terminating tshark for {pcap_file}.")
+                    process.terminate()
+                    break
+
+                line = process.stdout.readline()
+                if line == "":
+                    break
+
+                line = line.strip()
+                if not line:
+                    continue
+
+                parts = line.split("\t", 1)
+                if len(parts) != 2:
+                    continue
+
+                size_str, protocols_str = parts
+                try:
+                    packet_size = int(size_str)
+                except ValueError:
+                    continue
+
+                if bytes_scanned + packet_size > threshold:
+                    threshold_reached = True
+                    logger.info(
+                        "Quick scan threshold reached for %s (bytes_scanned=%s, next_packet=%s, threshold=%s)",
+                        pcap_file,
+                        bytes_scanned,
+                        packet_size,
+                        threshold,
+                    )
+                    break
+
+                bytes_scanned += packet_size
+                packets_scanned += 1
+                if not protocols_str:
+                    continue
+
+                protocols = protocols_str.split(":")
+                unique_protocols = set(protocols)
+                for proto in unique_protocols:
+                    protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
+
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+            if scan_cancel_event.is_set():
+                return None
+            stderr_output = process.stderr.read() if process.stderr else ""
+            if process.returncode not in (0, None) and not threshold_reached:
+                stderr_output = stderr_output.strip()
+                if stderr_output:
+                    logger.error(f"tshark exited with error for {pcap_file}: {stderr_output}")
+                return None
+
+            logger.info(
+                "Quick scan finished for %s (bytes_scanned=%s, packets_scanned=%s)",
+                pcap_file,
+                bytes_scanned,
+                packets_scanned,
+            )
+            return protocol_counts, packets_scanned
 
         stdout_lines: List[str] = []
         stderr_lines: List[str] = []
@@ -138,11 +367,10 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
         output = "".join(stdout_lines).strip()
 
         if not output:
-            return {} 
+            return {}, 0
 
-        protocol_counts: Dict[str, int] = {}
-
-        for line in output.splitlines():
+        lines = output.splitlines()
+        for line in lines:
             protocols = line.split(":")
 
             unique_protocols = set(protocols)
@@ -150,7 +378,7 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
             for proto in unique_protocols:
                 protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
 
-        return protocol_counts
+        return protocol_counts, len(lines)
 
     except FileNotFoundError:
         logger.error("tshark not found — please install it.")
@@ -161,8 +389,14 @@ def get_protocols_from_pcap_sync(pcap_file: str) -> Optional[Dict[str, int]]:
     finally:
         scan_process["tshark"] = None
 
-async def get_protocols_from_pcap(pcap_file: str) -> Optional[Dict[str, int]]:
-    return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file)
+async def get_protocols_from_pcap(
+    pcap_file: str,
+    scan_mode: str = "full",
+    quick_threshold_bytes: Optional[int] = None
+) -> Optional[tuple[Dict[str, int], int]]:
+    """Async wrapper around tshark protocol extraction."""
+    return await asyncio.to_thread(get_protocols_from_pcap_sync, pcap_file, scan_mode, quick_threshold_bytes)
+
 
 def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
     command = ['capinfos', '-M', '-c', pcap_file]
@@ -197,23 +431,21 @@ def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
 async def get_total_packets_from_pcap(pcap_file: str) -> Optional[int]:
     return await asyncio.to_thread(get_total_packets_from_pcap_sync, pcap_file)
 
-def calculate_protocol_percentages(protocol_counts: Dict[str, int]) -> Dict[str, float]:
+def calculate_protocol_percentages(protocol_counts: Dict[str, int], packets_scanned: int) -> Dict[str, float]:
     """
-    Calculates the presence percentage of each protocol relative to the total file.
+    Calculates the presence percentage of each protocol relative to scanned packets.
     """
     if not protocol_counts:
         return {}
 
-    total_packets = max(protocol_counts.values())
-
-    if total_packets == 0:
+    if packets_scanned <= 0:
         return {k: 0.0 for k in protocol_counts}
 
     percentages = {
-        proto: round((count / total_packets) * 100, 2) 
+        proto: round((count / packets_scanned) * 100, 2)
         for proto, count in protocol_counts.items()
     }
-    
+
     return percentages
 
 async def backfill_total_packets() -> dict:
@@ -293,6 +525,11 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
 
                 file_path = os.path.join(root, filename)
 
+                file_size = await asyncio.to_thread(os.path.getsize, file_path)
+                current_scan_mode = get_effective_scan_mode(file_size)
+                current_pebc = QUICK_SCAN_PEBC if current_scan_mode == "quick" else None
+                current_config_version = QUICK_SCAN_CONFIG_VERSION
+
                 file_hash = await calculate_sha256(file_path)
                 if file_hash in seen_hashes:
                     logger.info(f"Skipping {file_path} (duplicate hash already processed in this scan)")
@@ -302,12 +539,31 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                 pcap_key = f"pcap:file:{file_hash}"
 
                 if await asyncio.to_thread(redis_client.exists, pcap_key):
-                    stored_path = await asyncio.to_thread(redis_client.hget, pcap_key, "path")
+                    existing = await asyncio.to_thread(redis_client.hgetall, pcap_key)
+                    stored_path = existing.get("path")
                     if stored_path == file_path:
-                        await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
-                        logger.info(f"Skipping {file_path} (already indexed and unchanged)")
-                        continue
+                        has_params = await ensure_scan_params(pcap_key, existing)
+                        if not has_params:
+                            await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
+                            logger.info(f"Skipping {file_path} (missing scan params; defaulted to full)")
+                            continue
+                        stored_scan_mode = _normalize_scan_param(existing.get("scan_mode"))
+                        stored_pebc = _parse_pebc(_normalize_scan_param(existing.get("pebc")))
+                        stored_config_version = _normalize_scan_param(existing.get("config_version"))
+                        if not should_scan_file(
+                            current_scan_mode=current_scan_mode,
+                            current_pebc=current_pebc,
+                            current_config_version=current_config_version,
+                            stored_scan_mode=stored_scan_mode,
+                            stored_pebc=stored_pebc,
+                            stored_config_version=stored_config_version,
+                        ):
+                            await asyncio.to_thread(redis_client.hset, pcap_key, mapping={"last_scanned": time.time()})
+                            logger.info(f"Skipping {file_path} (scan params unchanged)")
+                            continue
+                        logger.info(f"Rescanning {file_path} due to scan-parameter changes")
                     elif await asyncio.to_thread(os.path.exists, stored_path): 
+                        await ensure_scan_params(pcap_key, existing)
                         logger.info(f"Duplicate file detected at {stored_path} (hash exists at {file_path})")
                         continue
                     else:
@@ -317,17 +573,26 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                             "source_directory": os.path.dirname(file_path),
                             "last_modified": await asyncio.to_thread(os.path.getmtime, file_path)
                         })
+                        await ensure_scan_params(pcap_key, existing)
                         continue
                 
+                quick_threshold_bytes = None
+                if current_scan_mode == "quick":
+                    quick_threshold_bytes = max(1, int(file_size * QUICK_SCAN_PEBC))
                 logger.info(f"Processing file: {file_path}")
-                protocol_data = await get_protocols_from_pcap(file_path)
+                protocol_result = await get_protocols_from_pcap(
+                    file_path,
+                    scan_mode=current_scan_mode,
+                    quick_threshold_bytes=quick_threshold_bytes,
+                )
 
-                if protocol_data is not None:
+                if protocol_result is not None:
+                    protocol_data, packets_scanned = protocol_result
                     if not protocol_data:
                         logger.warning(f"No protocols found in {filename}. Skipping from index.")
                         continue
 
-                    protocol_percentages = calculate_protocol_percentages(protocol_data)
+                    protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
 
                     file_size = await asyncio.to_thread(os.path.getsize, file_path)
                     total_packets = await get_total_packets_from_pcap(file_path)
@@ -351,6 +616,8 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
 
                     pipe = redis_client.pipeline()
 
+                    scan_mode = current_scan_mode
+                    pebc_value = f"{QUICK_SCAN_PEBC}" if scan_mode == "quick" else ""
                     pipe.hset(pcap_key, mapping={
                         "filename": filename,
                         "source_directory": pcap_dir,
@@ -360,9 +627,13 @@ async def scan_and_index(exclude_files: List[str] = None, base_url: str = None, 
                         "protocols": ",".join(protocols), 
                         "protocol_counts": json.dumps(protocol_data), 
                         "protocol_percentages": json.dumps(protocol_percentages),
+                        "packets_scanned": packets_scanned,
                         "download_url": download_url,
                         "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
                         "last_scanned": current_time,
+                        "scan_mode": scan_mode,
+                        "pebc": pebc_value,
+                        "config_version": QUICK_SCAN_CONFIG_VERSION,
                     })
 
                     autocomplete_payload = {proto: 0 for proto in protocols}
@@ -549,6 +820,15 @@ async def reindex_pcaps(request: Request, exclude: Optional[List[str]] = Query(N
 async def scan_status_endpoint():
     return scan_status
 
+@app.get("/scan-config")
+async def scan_config():
+    """Expose current runtime scan configuration."""
+    return {
+        "scan_mode": "quick" if QUICK_SCAN else "full",
+        "pebc": QUICK_SCAN_PEBC if QUICK_SCAN else None,
+        "min_file_size": QUICK_SCAN_MIN_FILE_SIZE_DISPLAY,
+        "config_version": QUICK_SCAN_CONFIG_VERSION,
+    }
 @app.post("/backfill/total-packets", summary="Backfill total packet counts for existing pcaps")
 async def backfill_total_packets_endpoint():
     if backfill_status["state"] == BackfillState.RUNNING:
@@ -593,13 +873,14 @@ async def search_pcaps(
         if not matching_hashes:
             return {"total": 0, "page": page, "limit": limit, "data": []}
 
+        matching_hashes = list(matching_hashes)
         pipe = redis_client.pipeline()
         for file_hash in matching_hashes:
             pipe.hgetall(f"pcap:file:{file_hash}")
         raw_results = await asyncio.to_thread(pipe.execute)
         
         results = []
-        for pcap_data in raw_results:
+        for file_hash, pcap_data in zip(matching_hashes, raw_results):
             if pcap_data:
                 counts_str = pcap_data.pop("protocol_counts", None)
                 packet_count = 0
@@ -610,6 +891,23 @@ async def search_pcaps(
                     except json.JSONDecodeError:
                         logger.warning(f"Could not parse protocol_counts")
                 
+                scan_mode = _normalize_scan_param(pcap_data.get("scan_mode"))
+                pebc = _normalize_scan_param(pcap_data.get("pebc"))
+                config_version = _normalize_scan_param(pcap_data.get("config_version"))
+                if not scan_mode or not config_version or (scan_mode != "full" and pebc is None):
+                    defaults = {
+                        "scan_mode": "full",
+                        "pebc": "",
+                        "config_version": QUICK_SCAN_CONFIG_VERSION,
+                    }
+                    await asyncio.to_thread(redis_client.hset, f"pcap:file:{file_hash}", mapping=defaults)
+                    scan_mode = defaults["scan_mode"]
+                    pebc = defaults["pebc"]
+                    config_version = defaults["config_version"]
+
+                pcap_data["scan_mode"] = scan_mode
+                pcap_data["pebc"] = pebc
+                pcap_data["config_version"] = config_version
                 pcap_data["searched_protocol"] = protocol
                 pcap_data["protocol_packet_count"] = packet_count
                 results.append(pcap_data)
@@ -703,6 +1001,11 @@ async def download_filtered_pcap(
     
     original_path = file_metadata.get("path")
     original_filename = file_metadata.get("filename")
+    packets_scanned_raw = file_metadata.get("packets_scanned")
+    try:
+        packets_scanned = int(packets_scanned_raw) if packets_scanned_raw else 0
+    except (TypeError, ValueError):
+        packets_scanned = 0
     
     if not re.match(r"^[a-zA-Z0-9_.-]+$", protocol):
         raise HTTPException(status_code=400, detail="Invalid protocol format")
@@ -713,9 +1016,14 @@ async def download_filtered_pcap(
     cmd = [
         "tshark",
         "-r", original_path,
-        "-Y", protocol,       
-        "-w", temp_filepath   
     ]
+    # Limit filtering to the same packet window used during scanning.
+    if packets_scanned > 0:
+        cmd.extend(["-c", str(packets_scanned)])
+    cmd.extend([
+        "-Y", protocol,
+        "-w", temp_filepath
+    ])
 
     logger.info(f"Starting filtered export: {' '.join(cmd)}")
 

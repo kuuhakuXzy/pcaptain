@@ -107,3 +107,15 @@ You can also use `curl` for testing.
     ```bash
     curl http://localhost:8000/health
     ```
+
+### 5. Backfill search index
+
+Trigger
+```
+curl -X POST http://localhost:7000/backfill/rebuild-searchindex
+```
+
+Status
+```
+curl http://localhost:7000/backfill/rebuild-searchindex-status
+```

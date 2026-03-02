@@ -3,10 +3,13 @@ import {
     API_PATH,
     CHECK_SCAN_FILES_STATUS_INTERVAL,
     MIN_QUERY_LENGTH,
+    SCAN_MODE_TEXT,
+    SERVER,
     SERVER_HEALTH_CHECK_INTERVAL,
     SERVER_SCANNING_FILE_STATUS,
     TOAST_STATUS
 } from "./constant.js";
+import { openInfoModal } from "./info-modal.js";
 
 
 // --- STATE MANAGEMENT ---
@@ -14,9 +17,9 @@ let currentPage = 1;
 let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
-let scanStatusTimer = null;
-
-const SERVER = new URL(`http://${window.APP_CONFIG.BASE_URL}:${window.APP_CONFIG.BASE_PORT}`).href;
+let currentFiles = []; // Store current page's files for copy functionality
+let scan_state = false; // Track whether scanning is active
+let scanStatusTimer = null; // Store the interval timer
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {
@@ -37,6 +40,36 @@ function disappearSearchLoadingSpinner() {
         spinner.classList.remove("spinner-search-visible");
     }
     if(searchBtn) searchBtn.style.display = "inline-block";
+}
+
+async function loadScanConfigTooltip() {
+    // Pull runtime scan configuration for the global tooltip.
+    const tooltipContent = document.getElementById("scanConfigTooltipContent");
+    if (!tooltipContent) {
+        return;
+    }
+    try {
+        const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
+        const config = response.data || {};
+        const scanModeLabel = SCAN_MODE_TEXT[config.scan_mode] || "Full";
+        const pebcLabel =
+            config.scan_mode === "quick" && config.pebc !== null && config.pebc !== undefined && config.pebc !== ""
+                ? config.pebc
+                : "N/A";
+        const minFileSize = config.min_file_size || "0";
+        const configVersion = config.config_version || "v1";
+        if (config.scan_mode === "full") {
+            tooltipContent.textContent = `Scan Mode: ${scanModeLabel}`;
+        } else {
+            tooltipContent.textContent =
+                `Scan Mode: ${scanModeLabel}\n` +
+                `PEBC: ${pebcLabel}\n` +
+                `Min File Size: ${minFileSize}\n` +
+                `Config Version: ${configVersion}`;
+        }
+    } catch (err) {
+        tooltipContent.textContent = "Scan config unavailable";
+    }
 }
 
 //check scan status
@@ -74,7 +107,7 @@ function startScanStatusPolling() {
 document.getElementById("searchBtn").addEventListener("click", () => {
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
-});
+})
 
 const searchInput = document.getElementById("searchInput");
 searchInput.addEventListener("keypress", (e) => {
@@ -92,6 +125,8 @@ const limitSelect = document.getElementById("limitSelect");
 if (limitSelect) limitSelect.value = "5"; 
 if (sortBySelect) sortBySelect.value = "filename";    
 if (sortOrderSelect) sortOrderSelect.value = "false";
+
+loadScanConfigTooltip();
 
 // Listen to user's items per page
 if (limitSelect) {
@@ -270,6 +305,51 @@ async function serverHealthCheck() {
 serverHealthCheck();
 setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 
+// --- SCAN STATE MANAGEMENT ---
+function manageScanState() {
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    
+    if (scan_state) {
+        // Start interval polling if not already running
+        if (!scanStatusTimer) {
+            scanStatusTimer = setInterval(async () => {
+                try {
+                    const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+                    const status = apiResponse.data.state;
+                    
+                    if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                        status === SERVER_SCANNING_FILE_STATUS.IDLE
+                    ) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                    } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.ERROR, "Scan failed");
+                    }
+                } catch (err) {
+                    console.error("Error checking scan status:", err);
+                    scan_state = false;
+                    manageScanState(); // This will clear the interval
+                    disappearScanLoadingSpinner();
+                    if (cancelBtn) cancelBtn.classList.add("hidden");
+                }
+            }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+        }
+    } else {
+        // Stop interval polling
+        if (scanStatusTimer) {
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+    }
+}
+
 async function scanFiles() {
     displayScanLoadingSpinner();
 
@@ -310,6 +390,7 @@ async function scanFiles() {
         }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
+        if (cancelBtn) cancelBtn.classList.add("hidden");
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
     }
@@ -341,17 +422,11 @@ async function fetchFiles() {
     try {
         displaySearchLoadingSpinner();
         
+        const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
+        
         const apiResponse = await axios.get(
             SERVER + API_PATH.PCAP_SEARCHING_PATH,
-            {
-                params: {
-                    protocol: search,
-                    page: currentPage,
-                    limit: itemsPerPage,
-                    sort_by: currentSortBy,
-                    descending: currentDescending
-                }
-            }
+            { params }
         );
 
         disappearSearchLoadingSpinner();
@@ -365,6 +440,8 @@ async function fetchFiles() {
         const responseData = apiResponse.data;
         const files = responseData.data; 
         const totalItems = responseData.total;
+
+        currentFiles = files; // Store current files for copy functionality
 
         renderTable(files);
         updatePaginationControls(totalItems);
@@ -497,12 +574,118 @@ function formatDate(timestamp) {
     return date.toLocaleString(); 
 }
 
+// --- NAMED EVENT HANDLERS ---
+function handleInfoButtonClick(e) {
+    e.stopPropagation();
+    const index = e.target.id.split('-')[1];
+    const file = currentFiles[index];
+    openInfoModal(file, e);
+}
+
+function handleCopyAllPaths() {
+    const paths = currentFiles.map(file => file.path).join('\n');
+    navigator.clipboard.writeText(paths).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "All paths copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy paths");
+    });
+}
+
+function handleCopyPathClick(e) {
+    if (!e.target.classList.contains('copy-path-btn')) return;
+    e.stopPropagation();
+    const path = e.target.getAttribute('data-path');
+    navigator.clipboard.writeText(path).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "Path copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy path");
+    });
+}
+
+
+// --- ATTACH STATIC LISTENERS ONCE ---
+document.addEventListener("DOMContentLoaded", () => {
+    const copyAllBtn = document.getElementById("copyAllPathsBtn");
+    if (copyAllBtn) {
+        copyAllBtn.addEventListener("click", handleCopyAllPaths);
+    }
+    // When DOM is ready, check current scan state and update UI
+    checkScanStateOnReady();
+});
+
+async function checkScanStateOnReady() {
+    try {
+        const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+        if (!apiResponse || !apiResponse.data) return;
+        const state = apiResponse.data.state;
+
+        const spinner = document.getElementById("spinnerScanBtn");
+        const scanBtn = document.getElementById("scanBtn");
+        const cancelBtn = document.getElementById("cancelScanBtn");
+
+        if (state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
+            if (spinner) {
+                spinner.classList.remove("spinner-scan-hidden");
+                spinner.classList.add("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "none";
+            if (cancelBtn) cancelBtn.classList.remove("hidden");
+            
+            // Set scan_state and start interval polling
+            scan_state = true;
+            manageScanState();
+        } else {
+            if (spinner) {
+                spinner.classList.add("spinner-scan-hidden");
+                spinner.classList.remove("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "inline-block";
+            if (cancelBtn) cancelBtn.classList.add("hidden");
+        }
+    } catch (err) {
+        console.error("Failed to fetch scan state:", err);
+    }
+}
+
+function getScanModeBadgeHtml(file) {
+    const scanModeRaw = (file.scan_mode || "").toLowerCase();
+    const isQuick = scanModeRaw === "quick";
+    const isFast = scanModeRaw === "fast";
+    const pebcValue =
+        isQuick && file.pebc !== undefined && file.pebc !== null && String(file.pebc).trim() !== ""
+            ? String(file.pebc).trim()
+            : "N/A";
+
+    let tooltipText = "Full Scan";
+    let badgeClasses = "scan-mode-icon text-green-600";
+    let iconHtml = `<span class="scan-mode-icon scan-mode-icon-full" aria-hidden="true">✓</span>`;
+
+    if (isQuick) {
+        tooltipText = `Quick Scan (${pebcValue})`;
+        badgeClasses = "scan-mode-icon text-yellow-600";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-quick" aria-hidden="true">⚡</span>`;
+    } else if (isFast) {
+        tooltipText = "Fast Scan";
+        badgeClasses = "scan-mode-icon";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-fast" aria-hidden="true">
+                        <i class="fa fa-rocket"></i>
+                    </span>`;
+    }
+
+    return `
+        <span class="${badgeClasses}" title="${tooltipText}" aria-label="${tooltipText}">
+            ${iconHtml}
+        </span>
+    `;
+}
+
+
 function renderTable(files) {
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = '';
 
     if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No result found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No result found</td></tr>';
         return;
     }
 
@@ -521,109 +704,52 @@ function renderTable(files) {
             <td data-label="Info"> 
                 <button id="${btnId}" class="info-btn" title="View Details">i</button>
             </td>
-            <td data-label="Path">${file.path}</td>
+            <td data-label="Mode" class="mode-cell">
+                ${getScanModeBadgeHtml(file)}
+            </td>
+            <td data-label="Path">
+                ${file.path} 
+                <i class="fa fa-copy copy-path-btn" data-path="${file.path}" title="Copy path"></i>
+            </td>
+            <td data-label="Matched">
+                ${renderMatchedHTML(file)}
+            </td>
             <td data-label="Size">${formatFileSize(file.size_bytes)}</td>
-            <td data-label="Packet">${file.protocol_packet_count}</td>
+            <td data-label="Packet">${file.total_packets || '-'}</td>
             
         `;
         tbody.appendChild(tr);
 
-        setTimeout(() => {
-            const btn = document.getElementById(btnId);
-            if(btn){
-                btn.addEventListener("click", (e) => {
-                    e.stopPropagation(); 
-                    openInfoModal(file, e);
-                });
-            }
-        }, 0);
-    });
-}
-
-
-window.addEventListener("click", (e) => {
-    const modal = document.getElementById("infoModal");
-    
-    if (modal.classList.contains("show") && !modal.contains(e.target)) {
-        modal.classList.remove("show");
-    }
-});
-
-// Pop up modal for each pcap file
-function openInfoModal(file, event) {
-    const modal = document.getElementById("infoModal");
-    const btn = event.currentTarget;
-
-    document.getElementById("infoFilename").innerText = file.filename || "N/A";
-    document.getElementById("infoPath").innerText = file.path || "N/A";
-    document.getElementById("infoSize").innerText = formatFileSize(file.size_bytes);
-    document.getElementById("infoPackets").innerText = file.total_packets || 0;
-
-    document.getElementById("infoModified").innerText = formatDate(file.last_modified);
-    document.getElementById("infoScanned").innerText = formatDate(file.last_scanned);
-
-    // Fill all protocols
-    const protoContainer = document.getElementById("infoProtocols");
-    protoContainer.innerHTML = "";
-
-    let percentMap = {};
-
-    if (file.protocol_percentages) {
-
-        try {
-
-            percentMap = JSON.parse(file.protocol_percentages);
-
-        } catch (e) {
-
-            console.error("Error parsing percentages:", e);
-
+        // Attach listener to info button immediately (no setTimeout needed)
+        const btn = tr.querySelector(`#${btnId}`);
+        if (btn) {
+            btn.addEventListener("click", handleInfoButtonClick);
         }
+    });
 
-    }
-    
-    if (file.protocols) {
-        const protos = file.protocols.split(","); 
-        protos.forEach(p => {
-            const badge = document.createElement("span");
-            badge.className = "proto-badge";
-            
-            const pct = percentMap[p] || 0;
-            badge.innerText = `${p.toUpperCase()} (${pct}%)`;
-            
-            badge.style.cursor = "pointer";
-            badge.title = `Click to download only ${p.toUpperCase()} packets`;
-
-            badge.addEventListener("click", async (e) => {
-                e.stopPropagation(); 
-                
-                showToast(TOAST_STATUS.INFO, `Preparing download for ${p.toUpperCase()}...`);
-                
-                const fileHash = file.download_url.split("/").pop(); 
-                const downloadUrl = `${SERVER}pcaps/download/${fileHash}/filter?protocol=${p}`;
-                
-                window.location.href = downloadUrl;
-            });
-
-            protoContainer.appendChild(badge);
-        });
-    }
-
-    // Locate the modal next to the button
-    const rect = btn.getBoundingClientRect();
-    
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    const scrollLeft = window.scrollX || document.documentElement.scrollLeft;
-
-    modal.classList.remove("hidden"); 
-    modal.classList.add("show");
-    
-    let left = (rect.right + scrollLeft) + 10; 
-    let top = (rect.top + scrollTop) - 20;
-
-    modal.style.left = `${left}px`;
-    modal.style.top = `${top}px`;
+    // Use event delegation for dynamic copy buttons (attached once to tbody)
+    tbody.addEventListener('click', handleCopyPathClick);
 }
+
+// Render matched protocols: show first two, and a (+N) hover tooltip for the rest
+function renderMatchedHTML(file) {
+    const matched = file.matched_protocols || [];
+    if (!matched.length) return '-';
+
+    const visibleCount = 1;
+    const visible = matched
+        .slice(0, visibleCount)
+        .map(p => `<span class="proto-badge" title="Matched protocol">${p.toUpperCase()}</span>`)
+        .join(' ');
+
+    if (matched.length <= visibleCount) return visible;
+
+    const remaining = matched.length - visibleCount;
+    const remainingList = matched.map(p => p.toUpperCase()).join(', ').replace(/"/g, '&quot;');
+    const moreHtml = `<span class="more-matched" title="${remainingList}">(+${remaining})</span>`;
+    return `${visible} ${moreHtml}`;
+}
+
 
 function formatFileSize(bytes) {
     bytes = parseInt(bytes);
