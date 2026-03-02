@@ -1,0 +1,25 @@
+port: 7000
+public_url: http://localhost:7000
+redis:
+  host: redis
+  port: 6380
+pcap:
+  root_directory: /pcaps
+  # Replace with root directory for processed pcap files path when return to client
+  prefix_str: /home/kendrick/Desktop/main_pcap/pcaps
+  excluded_protocols:
+    - json
+  allowed_file_extensions:
+    - .pcap
+    - .pcapng
+    - .cap
+  scan_interval_seconds: 3600 # 1 hour
+  scan_mode: fast # options: full, quick, fast
+  # Quick scan (tshark sampling) settings
+  # for files >= min_file_size, and only scan `pebc` of bytes.
+  quick_scan:
+    pebc: 0.1
+    min_file_size: 1024
+    config_version: v1
+log:
+  level: INFO

@@ -1,0 +1,23 @@
+<div id="configModal" class="modal hidden">
+    <div class="modal-content config-modal-content">
+        <div class="modal-header">
+            <h2>Settings</h2>
+            <span id="closeConfigModal" class="close-btn">&times;</span>
+        </div>
+        
+        <div class="config-tabs">
+            <button class="config-tab active" data-tab="excludeProtocols">Exclude Protocols</button>
+        </div>
+        
+        <div class="config-content">
+            <div id="excludeProtocolsTab" class="tab-content active">
+                <p class="config-description">Enter protocols to exclude from search results (comma or space separated):</p>
+                <textarea id="excludedProtocolsInput" class="config-textarea" placeholder="e.g., arp, icmp, llc" rows="6"></textarea>
+                <div class="config-actions">
+                    <button id="resetExcludedBtn" class="action-btn secondary">Reset</button>
+                    <button id="saveExcludedBtn" class="action-btn primary">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

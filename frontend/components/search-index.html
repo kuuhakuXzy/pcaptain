@@ -6,10 +6,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="search-style.css">
     <link rel="stylesheet" href="toast-style.css">
+    <link rel="stylesheet" href="config-modal-style.css">
+    <link rel="stylesheet" href="info-modal-style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <title>PCAP Searching</title>
     <!-- Axios CDN -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        Promise.all([
+            fetch('config-modal.html').then(r => r.text()),
+            fetch('info-modal.html').then(r => r.text())
+        ])
+        .then(([configHtml, infoHtml]) => {
+            const container = document.querySelector('.container');
+            container.insertAdjacentHTML('beforeend', configHtml + infoHtml);
+            document.dispatchEvent(new Event("dynamic-dom-ready"));
+        })
+        .catch(err => {
+            console.error('Failed to load dynamic fragments', err);
+        });
+    </script>
 </head>
 
 <body>
@@ -22,8 +38,19 @@
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
-            <button id="cancelScanBtn" class="danger-btn" disabled>Cancel</button>
-
+            <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
+            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+                <i class="fa fa-bar-chart"></i>
+            </button>
+            <button id="configBtn" class="config-btn" title="Settings">
+                <i class="fa fa-cog"></i>
+            </button>
+            <div class="scan-config-tooltip" id="scanConfigTooltip">
+                <i class="fa fa-info-circle" aria-hidden="true"></i>
+                <div class="scan-config-tooltip-content" id="scanConfigTooltipContent">
+                    Loading scan config...
+                </div>
+            </div>
         </div>
 
         <!-- Status signal -->
@@ -67,7 +94,9 @@
                     <tr>
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
-                        <th>Path</th>
+                        <th class="thMode">Mode</th>
+                        <th>Path <i class="fa fa-copy" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
                         
@@ -95,55 +124,13 @@
             </div>
         </div>
 
-        
-        <div id="infoModal" class="modal hidden">
-            <div class="modal-content info-modal-content">
-                <!-- <div class="modal-header">
-                    <h2>File Details</h2>
-                    <span id="closeInfoModal" class="close-btn">&times;</span>
-                </div> -->
-                
-                <div class="modal-body">
-                    <div class="info-row">
-                        <strong>Filename:</strong> <span id="infoFilename"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Full Path:</strong> <span id="infoPath"></span>
-                    </div>
-                    
-                    <hr class="info-divider">
-
-                    <div class="info-row">
-                        <strong>Size:</strong> <span id="infoSize"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Total Packet Count:</strong>  <span id="infoPackets"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Last Modified:</strong> <span id="infoModified"></span>
-                    </div>
-                    <div class="info-row">
-                        <strong>Last Scanned:</strong> <span id="infoScanned"></span>
-                    </div>
-
-                    <hr class="info-divider">
-
-                    <div class="info-row">
-                        <strong>Protocols Found:</strong>
-                        <div id="infoProtocols" class="protocol-badges">
-                            </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-
     </div>
 
     <script src="config.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
     <script type="module" src="search-script.js"></script>
+    <script type="module" src="config-modal-script.js"></script>
 </body>
 
 </html>
