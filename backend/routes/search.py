@@ -41,53 +41,44 @@ SORT_FIELD_TO_INDEX = {
 
 def resolve_protocols(
     query: str,
-    candidates: list[str],
+    protocol_candidates: list[str],
     *,
     min_prefix_len: int = 3,
     max_contains_matches: int = 5,
     max_prefix_matches: int = 3,
     max_fuzzy: int = 10,
 ) -> list[str]:
-    q = query.lower()
+    q_low = query.lower().strip()
+    words = q_low.split()
 
-    exact = []
-    contains = []
-    prefix = []
+    p_exact, p_contains, p_prefix = [], [], []
 
-    for p in candidates:
-        pl = p.lower()
+    for proto in protocol_candidates:
+        c_low = proto.lower() #rename pl to c_low
 
-        if pl == q:
-            exact.append(p)
-            continue
+        # Check that candidate is matching with any keywords
+        for word in words:
+            # Exact match
+            if c_low == word:
+                if proto not in p_exact:
+                    p_exact.append(proto)
+                break
 
-        if q in pl:
-            contains.append(p)
-            continue
+            # Prefix match
+            if c_low.startswith(word) and len(word) >= min_prefix_len:
+                if proto not in p_prefix and len(p_prefix) < max_prefix_matches:
+                    p_prefix.append(p)
+                break
 
-        if pl.startswith(q):
-            prefix.append(p)
+            # Contains match
+            if word in c_low:
+                if proto not in p_contains and len(p_contains) < max_contains_matches:
+                    p_contains.append(proto)
+                break
 
-    if exact:
-        return exact
+    results = p_exact + p_prefix + p_contains
 
-    if (
-        len(q) >= min_prefix_len
-        and contains
-        and len(contains) <= max_contains_matches
-    ):
-        return contains
-
-    if (
-        len(q) >= min_prefix_len
-        and prefix
-        and len(prefix) <= max_prefix_matches
-    ):
-        return prefix
-
-    fuzzy = rank_protocols(q, candidates, max_dist=0.5)
-    return fuzzy[:max_fuzzy]
-
+    return results[:max_fuzzy]
 
 @router.get("/search", summary="Search for pcaps containing a specific protocol")
 async def fuzzy_search_pcaps(
@@ -107,16 +98,17 @@ async def fuzzy_search_pcaps(
     excluded = context.get_excluded_protocols()
 
     all_protocols = await get_all_protocols(redis)
-    candidates = [
+
+    protocol_candidates = [
         p for p in all_protocols
         if p.lower() not in excluded
     ]
 
-    protocols = resolve_protocols(protocol, candidates)
+    protocols = resolve_protocols(protocol, protocol_candidates)
     if not protocols:
         return {"total": 0, "page": page, "limit": limit, "data": []}
 
-    resolved_set = {p.lower() for p in protocols}
+    protocol_resolved_set = {p.lower() for p in protocols}
 
     protocol_keys = [f"{PROTOCOCOL_INDEX_PREFIX}:{p.lower()}" for p in protocols]
 
@@ -179,7 +171,7 @@ async def fuzzy_search_pcaps(
         counts = json.loads(row.get("protocol_counts", "{}"))
         matched = [
             p for p in counts.keys()
-            if p.lower() in resolved_set
+            if p.lower() in protocol_resolved_set
         ]
 
         row["matched_protocols"] = matched
@@ -192,7 +184,7 @@ async def fuzzy_search_pcaps(
                 1,
             )
 
-        results.append(row)
+        results.append(row) 
 
     return {
         "total": total,
