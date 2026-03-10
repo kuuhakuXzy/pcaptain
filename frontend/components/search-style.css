@@ -289,14 +289,13 @@ th {
     font-family: Arial, Helvetica, sans-serif;
 }
 
-tr {
-    border-bottom: 1px solid #000;
+tbody tr:nth-child(odd) {
+    background-color: rgba(225,245,254,45%);
 }
 
 td {
     font-family: 'Courier New', Courier, monospace;
     padding: 12px 10px;
-    /* border-bottom: 1px solid #000; */
     font-size: 13px;
     word-wrap: break-word;
 }

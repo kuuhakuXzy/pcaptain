@@ -700,7 +700,7 @@ function renderTable(files) {
     tbody.innerHTML = '';
 
     if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No result found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No result found</td></tr>';
         return;
     }
 
