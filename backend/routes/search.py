@@ -80,10 +80,26 @@ def resolve_protocols(
 
     return results[:max_fuzzy]
 
-@router.get("/search", summary="Search for pcaps containing a specific protocol")
+async def search_by_filename(query: str, redis, sort_index: str) -> set[str]:
+    q = query.lower().strip()
+    all_ids = await asyncio.to_thread(redis.zrange, sort_index, 0, -1)
+    if not all_ids:
+        return set()
+
+    pipe = redis.pipeline()
+    for h in all_ids:
+        pipe.hgetall(f"{PCAP_FILE_KEY_PREFIX}:{h}")
+    rows = await asyncio.to_thread(pipe.execute)
+
+    return {
+        h for h, row in zip(all_ids, rows)
+        if row and query.lower() in row.get("filename", "").lower()
+    }
+
+@router.get("/search", summary="Search for pcaps by protocol or filename")
 async def fuzzy_search_pcaps(
     protocol: str = Query(
-        ..., description="The protocol name to search for, e.g., sip"
+        ..., description="The search query - matches protocol name AND filename"
     ),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
@@ -95,6 +111,8 @@ async def fuzzy_search_pcaps(
     if not redis:
         raise HTTPException(503, "Redis unavailable")
 
+    logger.info(f"[search] query='{protocol}', sort_by='{sort_by}'")
+
     excluded = context.get_excluded_protocols()
 
     all_protocols = await get_all_protocols(redis)
@@ -105,19 +123,34 @@ async def fuzzy_search_pcaps(
     ]
 
     protocols = resolve_protocols(protocol, protocol_candidates)
-    if not protocols:
-        return {"total": 0, "page": page, "limit": limit, "data": []}
 
     protocol_resolved_set = {p.lower() for p in protocols}
 
     protocol_keys = [f"{PROTOCOCOL_INDEX_PREFIX}:{p.lower()}" for p in protocols]
+
+    sort_index = SORT_FIELD_TO_INDEX.get(sort_by)
 
     base_tmp = f"{TMP_RESULT_PREFIX}:{uuid4().hex}"
     tmp_set = f"{base_tmp}:set"
     tmp_z = f"{base_tmp}:z"
     tmp_sorted = f"{base_tmp}:sorted"
 
-    await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+    # await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+
+    async def build_protocol_set():
+        if protocol_keys:
+            await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+
+    filename_hashes, _ = await asyncio.gather(
+        search_by_filename(protocol, redis, sort_index),
+        build_protocol_set(),
+    )
+
+    if filename_hashes:
+        pipe = redis.pipeline()
+        for h in filename_hashes:
+            pipe.sadd(tmp_set, h)
+        await asyncio.to_thread(pipe.execute)
 
     ## disable because of bug:
     # searh for h1 -> not return h1 files because `json` in the these files
@@ -134,7 +167,7 @@ async def fuzzy_search_pcaps(
 
     await asyncio.to_thread(redis.zinterstore, tmp_z, {tmp_set: 1})
 
-    sort_index = SORT_FIELD_TO_INDEX.get(sort_by)
+    # sort_index = SORT_FIELD_TO_INDEX.get(sort_by)
     await asyncio.to_thread(
         redis.zinterstore,
         tmp_sorted,
@@ -169,10 +202,11 @@ async def fuzzy_search_pcaps(
             continue
 
         counts = json.loads(row.get("protocol_counts", "{}"))
-        matched = [
-            p for p in counts.keys()
-            if p.lower() in protocol_resolved_set
-        ]
+        if protocol_resolved_set:
+            matched = [p for p in counts.keys() if p.lower() in protocol_resolved_set]
+        else:
+            # Show all protocols if search query is filename
+            matched = list(counts.keys())
 
         row["matched_protocols"] = matched
         row["searched_protocol"] = protocol

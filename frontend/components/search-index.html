@@ -32,7 +32,7 @@
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
         <div class="search-box">
-            <input id="searchInput" type="text" placeholder="Enter protocol..." required autocomplete="off" />
+            <input id="searchInput" type="text" placeholder="Type a file name or protocol..." required autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
             <button id="searchBtn">Search</button>
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
@@ -42,9 +42,10 @@
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
-            <button id="configBtn" class="config-btn" title="Settings">
+            <!-- Hidden because no use case -->
+            <!-- <button id="configBtn" class="config-btn" title="Settings">
                 <i class="fa fa-cog"></i>
-            </button>
+            </button> -->
             <div class="scan-config-tooltip" id="scanConfigTooltip">
                 <i class="fa fa-info-circle" aria-hidden="true"></i>
                 <div class="scan-config-tooltip-content" id="scanConfigTooltipContent">
@@ -95,7 +96,7 @@
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
-                        <th>Path <i class="fa fa-copy" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i></th>
                         <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
