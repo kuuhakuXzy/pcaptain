@@ -7,7 +7,6 @@ const API_PATH = Object.freeze({
     SCAN_STATUS_PATH: "scan-status",
     SEARCH_SUGGESTION: "protocols/suggest",
     SCAN_CANCEL_PATH: "scan-cancel",
-    EXCLUDED_PROTOCOLS_PATH: "excluded-protocols",
     DASHBOARD_SUMMARY_PATH: "dashboard-summary",
     SCAN_CONFIG_PATH: "scan-config"
 });

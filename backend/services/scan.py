@@ -457,7 +457,7 @@ class ScanService:
                     )
                     protocol_result = await self.get_protocols_from_pcap(
                         file_path,
-                        excluded_protocols=config.pcap.excluded_protocols,
+                        excluded_protocols=None,
                         scan_mode=current_scan_mode,
                         quick_threshold_bytes=quick_threshold_bytes,
                     )

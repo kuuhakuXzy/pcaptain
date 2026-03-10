@@ -14,12 +14,11 @@
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script>
         Promise.all([
-            fetch('config-modal.html').then(r => r.text()),
             fetch('info-modal.html').then(r => r.text())
         ])
-        .then(([configHtml, infoHtml]) => {
+        .then(([infoHtml]) => {
             const container = document.querySelector('.container');
-            container.insertAdjacentHTML('beforeend', configHtml + infoHtml);
+            container.insertAdjacentHTML('beforeend', infoHtml);
             document.dispatchEvent(new Event("dynamic-dom-ready"));
         })
         .catch(err => {
@@ -42,7 +41,7 @@
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
-            <!-- Hidden because no use case -->
+            <!-- Remove because no use case -->
             <!-- <button id="configBtn" class="config-btn" title="Settings">
                 <i class="fa fa-cog"></i>
             </button> -->
@@ -131,7 +130,6 @@
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
     <script type="module" src="search-script.js"></script>
-    <script type="module" src="config-modal-script.js"></script>
 </body>
 
 </html>

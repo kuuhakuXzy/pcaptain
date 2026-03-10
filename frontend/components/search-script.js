@@ -102,9 +102,20 @@ function startScanStatusPolling() {
             scanStatusTimer = null;
         }
     }, CHECK_SCAN_FILES_STATUS_INTERVAL);
-}  
+}
+
+// Helper function
+function smartFetch() {
+    const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+    fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+}
 
 document.getElementById("searchBtn").addEventListener("click", () => {
+    const search = document.getElementById("searchInput").value.trim();
+    if (!search) {
+        return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+    }
+
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
 })
@@ -112,6 +123,10 @@ document.getElementById("searchBtn").addEventListener("click", () => {
 const searchInput = document.getElementById("searchInput");
 searchInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") {
+        const search = document.getElementById("searchInput").value.trim();
+        if (!search) {
+            return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+        }
         currentPage = 1; // Reset to page 1 on new search
         hideSuggestion();
         fetchFiles();
@@ -132,8 +147,8 @@ loadScanConfigTooltip();
 if (limitSelect) {
     limitSelect.addEventListener("change", (e) => {
         itemsPerPage = parseInt(e.target.value);
-        currentPage = 1; 
-        fetchFiles();
+        currentPage = 1;
+        smartFetch();
     });
 }
 
@@ -141,7 +156,7 @@ if (sortBySelect) {
     sortBySelect.addEventListener("change", (e) => {
         currentSortBy = e.target.value;
         currentPage = 1; 
-        fetchFiles();
+        smartFetch();
     });
 }
 
@@ -149,7 +164,7 @@ if (sortOrderSelect) {
     sortOrderSelect.addEventListener("change", (e) => {
         currentDescending = e.target.value === "true";
         currentPage = 1; 
-        fetchFiles();
+        smartFetch();
     });
 }
 
@@ -412,12 +427,10 @@ async function syncScanStateOnLoad() {
 }
 
 syncScanStateOnLoad();
+fetchFiles(true); // Load initial files on page load
 
 async function fetchFiles() {
     const search = document.getElementById("searchInput").value.toLowerCase().trim();
-    if (!search) {
-        return showToast(TOAST_STATUS.WARNING, "Please enter protocol");
-    }
 
     try {
         displaySearchLoadingSpinner();
@@ -477,7 +490,8 @@ function updatePaginationControls(totalItems) {
         if (!isDisabled && !isActive && pageNum !== null) {
             btn.addEventListener("click", () => {
                 currentPage = pageNum;
-                fetchFiles();
+                const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+                fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
             });
         }
         buttonsGroup.appendChild(btn);
@@ -556,7 +570,8 @@ function updatePaginationControls(totalItems) {
 
     select.addEventListener("change", (e) => {
         currentPage = parseInt(e.target.value);
-        fetchFiles();
+        const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+        fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
     });
     infoGroup.appendChild(select);
 

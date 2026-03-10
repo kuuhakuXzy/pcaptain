@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends
-from typing import List
 
 from services.context import get_app_context, AppContext
 import asyncio
@@ -12,24 +11,6 @@ router = APIRouter(tags=["Protocols"])
 logger = get_logger(__name__)
 
 
-@router.get("/excluded-protocols", summary="Get list of excluded protocols")
-async def excluded_protocols(context: AppContext = Depends(get_app_context)):
-    excluded = context.get_dynamic_excluded_protocols()
-    return list(excluded)
-
-
-@router.post("/excluded-protocols", summary="Set excluded protocols")
-async def set_excluded_protocols(
-    protocols: List[str], context: AppContext = Depends(get_app_context)
-):
-    cleaned = " ".join(p.strip().lower() for p in protocols if p.strip())
-    await asyncio.to_thread(
-        context.redis_client.set, "pcap:config:excluded_protocols", cleaned
-    )
-    context.dynamic_excluded_protocols = set(protocols)
-    return {"status": "success", "excluded_protocols": protocols}
-
-
 @router.get("/protocols/suggest", summary="Get protocol name suggestions for autocomplete")
 async def suggest_protocols(
     q: str = Query(..., min_length=1, description="The prefix text to search for (e.g., 'ht' or 'tc')"),
@@ -40,8 +21,6 @@ async def suggest_protocols(
         raise HTTPException(status_code=503, detail="Service unavailable: Redis connection failed.")
 
     try:
-        excluded = context.get_excluded_protocols()
-
         # Prefix matching
         start_range = f"[{q}"
         end_range = f"[{q}\xff"
@@ -54,11 +33,11 @@ async def suggest_protocols(
             start=0,
             num=limit,
         )
-        prefix_matches = [s for s in prefix_matches if s.lower() not in excluded]
+        prefix_matches = [s for s in prefix_matches]
 
         # Fuzzy matching
         all_protocols = await get_all_protocols(context.redis_client)
-        candidates = [p for p in all_protocols if p.lower() not in excluded]
+        candidates = [p for p in all_protocols]
 
         fuzzy_matches = rank_protocols(q, candidates, max_dist=0.5)
         
