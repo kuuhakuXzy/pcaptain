@@ -3,7 +3,7 @@ from typing import List
 
 from services.context import get_app_context, AppContext
 import asyncio
-from services.scan import AUTOCOMPLETE_KEY, get_all_protocols
+from services.scan import AUTOCOMPLETE_KEY, SORT_INDEX_FILENAME, PCAP_FILE_KEY_PREFIX, get_all_protocols
 from services.logger import get_logger
 from fastapi import Query, HTTPException
 from utils.protocols_utils import rank_protocols
@@ -64,10 +64,38 @@ async def suggest_protocols(
         
         prefix_set = {p.lower() for p in prefix_matches}
         unique_fuzzy = [p for p in fuzzy_matches if p.lower() not in prefix_set]
+
+        protocol_suggestions = (prefix_matches + unique_fuzzy)[:limit]
+
+        # Filename suggestions
+        all_ids = await asyncio.to_thread(context.redis_client.zrange, SORT_INDEX_FILENAME, 0, -1)
+
+        filename_suggestions = []
+        if all_ids:
+            pipe = context.redis_client.pipeline()
+            for h in all_ids:
+                pipe.hgetall(f"{PCAP_FILE_KEY_PREFIX}:{h}")
+            rows = await asyncio.to_thread(pipe.execute)
+
+            seen = set()
+            for row in rows:
+                if not row: 
+                    continue
+                fname = row.get("filename", "")
+                if q.lower() in fname.lower() and fname not in seen:
+                    seen.add(fname)
+                    filename_suggestions.append(fname)
         
-        all_matches = prefix_matches + unique_fuzzy
+        # Combine protocol and filename suggestions, ensuring uniqueness
+        seen_all = set()
+        merged = []
+        for item in protocol_suggestions + filename_suggestions:
+            if item not in seen_all:
+                seen_all.add(item)
+                merged.append(item)
         
-        return all_matches[:limit]
+        return merged[:limit]
+
     except Exception as e:
         logger.error(f"Error during protocol suggestion: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while fetching suggestions.")
