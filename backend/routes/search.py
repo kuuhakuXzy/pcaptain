@@ -67,7 +67,7 @@ def resolve_protocols(
             # Prefix match
             if c_low.startswith(word) and len(word) >= min_prefix_len:
                 if proto not in p_prefix and len(p_prefix) < max_prefix_matches:
-                    p_prefix.append(p)
+                    p_prefix.append(proto)
                 break
 
             # Contains match
