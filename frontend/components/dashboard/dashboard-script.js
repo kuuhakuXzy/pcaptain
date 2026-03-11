@@ -122,9 +122,10 @@ function renderDashboard(data) {
         'Files'
     );
 
+    // Eric update - create pie chart for protocol diversity
     charts.diversityChart = createPieChart(
         'diversityChart',
-        data.protocol_diversity_distribution,
+        data.protocol_presence_distribution,
         'Protocol Count'
     );
 
@@ -377,21 +378,22 @@ function createHorizontalBarChart(canvasId, data, label) {
     });
 }
 
+// Eric - upadate - create pie chart for protocol diversity
 function createPieChart(canvasId, data, label) {
     const ctx = document.getElementById(canvasId).getContext('2d');
-    
-    const labels = Object.keys(data).sort((a, b) => parseInt(a) - parseInt(b));
-    const values = labels.map(l => data[l] || 0);
+    // Eric
+    const entries = Object.entries(data)
+        .sort((a, b) => a[0].localeCompare(b[0])); // sort by name
 
-    const colors = [
-        'rgba(102, 126, 234, 0.8)',
-        'rgba(118, 75, 162, 0.8)',
-        'rgba(16, 185, 129, 0.8)',
-        'rgba(245, 158, 11, 0.8)',
-        'rgba(239, 68, 68, 0.8)',
-        'rgba(59, 130, 246, 0.8)',
-        'rgba(168, 85, 247, 0.8)',
-    ];
+    const labels = entries.map(e => e[0]);
+    const values = entries.map(e => e[1]);
+
+    const colors = labels.map((_, i) =>
+        `hsl(${(i * 360) / labels.length}, 65%, 55%)`
+    );
+
+    const total = values.reduce((sum, val) => sum + val, 0);
+    //
 
     // Render custom legend list
     const legendContainer = document.getElementById('diversityLegendList');
@@ -402,9 +404,14 @@ function createPieChart(canvasId, data, label) {
             const item = document.createElement('div');
             item.className = 'legend-item';
             item.style.borderLeftColor = color;
+            //Eric - calculate percentage
+            const percent = total > 0
+                ? ((values[idx] / total) * 100).toFixed(1)
+                : 0;           
+
             item.innerHTML = `
                 <span class="legend-item-label">${lbl} protocols</span>
-                <span class="legend-item-count">${values[idx]}</span>
+                <span class="legend-item-count">${values[idx]} files (${percent}%)</span>
             `;
             legendContainer.appendChild(item);
         });
@@ -419,7 +426,8 @@ function createPieChart(canvasId, data, label) {
                 data: values,
                 backgroundColor: colors,
                 borderWidth: 1,
-                borderColor: '#ffffff2f'
+                borderColor: '#ffffff2f',
+                hoverOffset: 12
             }]
         },
         options: {
@@ -428,6 +436,21 @@ function createPieChart(canvasId, data, label) {
             plugins: {
                 legend: {
                     display: false
+                },
+                // Eric - custom tooltip to show count and percentage
+                tooltip: {
+                    enabled: true,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            const data = context.dataset.data;
+                            const total = data.reduce((sum, val) => sum + val, 0);
+                            const value = context.parsed;
+                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+
+                            return `${value} files (${percentage}%)`;
+                        }
+                    }
                 }
             }
         }

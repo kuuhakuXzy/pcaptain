@@ -1,7 +1,7 @@
 import yaml
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Set
+from typing import Dict, List, Optional, Set
 from pydantic import BaseModel, Field, field_validator
 from .logger import get_logger
 
@@ -39,6 +39,10 @@ class PcapConfig(BaseModel):
     scan_interval_seconds: int = 300
     scan_mode: ScanMode = ScanMode.FULL
     quick_scan: QuickScanConfig = Field(default_factory=QuickScanConfig)
+    
+    ######### Eric update: added new fields to track processing results and errors for better monitoring and debugging###########
+    processing_errors: List[Dict[str, str]] = []
+    #########
 
 
 class LogConfig(BaseModel):

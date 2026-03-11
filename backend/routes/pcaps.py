@@ -114,3 +114,31 @@ async def download_filtered_pcap(
         media_type="application/vnd.tcpdump.pcap",
         filename=f"subset_{protocol}_{original_filename}",
     )
+
+# Eric update - added new endpoint to get count of pcap files and other files in the directory for better monitoring and debugging
+@router.get("/pcaps/count", summary="Get number of PCAP files")
+async def count_pcaps(context: AppContext = Depends(get_app_context)):
+    try:
+        pcap_dir = context.config.pcap.root_directory
+
+        all_files = os.listdir(pcap_dir)
+
+        pcap_files = [
+            f for f in all_files
+            if f.endswith((".pcap", ".pcapng", ".cap"))
+        ]
+
+        other_files = [
+            f for f in all_files
+            if not f.endswith((".pcap", ".pcapng", ".cap"))
+        ]
+
+        return {
+            "pcap_files": len(pcap_files),
+            "other_files": len(other_files),
+            "total_files": len(all_files)
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to count pcaps: {e}")
+        raise HTTPException(status_code=500, detail="Failed to count PCAP files")

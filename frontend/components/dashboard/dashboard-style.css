@@ -146,6 +146,8 @@ nav {
     font-size: 14px;
     opacity: 0.9;
     margin-bottom: 8px;
+    /* Eric - update - make label more prominent */
+    font-weight: 700;
 }
 
 .overview-value {

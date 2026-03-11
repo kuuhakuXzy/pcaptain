@@ -31,6 +31,23 @@
 <body>
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
+        <div class="landing-info">
+            <h3>How PCAPTAIN Works</h3>
+            <ol>
+                <li>Click <b>Scan</b> to index all PCAP files in the <b>pcaps</b> folder.</li>
+                <li>The tool analyzes packets and detects telecom protocols automatically.</li>
+                <li>Enter a protocol name (e.g., eth, ip, sctp, mtp2, mtp3) to search.</li>
+                <li>Matching PCAP files and packet counts will be displayed in the results table.</li>
+            </ol>
+            <p><b>Supported file extensions:</b> .pcap, .pcapng, .cap</p>
+            <p><b>There are 3 scan options available:</b> Full scan, Quick scan, and Fast scan</p>
+        </div>
+        <!-- Eric - Display total files in pcaps folder -->
+        <div id="pcapStats" class="pcap-stats"></div>
+        <!-- Eric - Added: show current scan mode from backend configuration -->
+        <div class="pcap-stats">
+            <span id="currentScanMode"></span>
+        </div>
         <div class="search-box">
             <input id="searchInput" type="text" placeholder="Enter protocol..." required autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
@@ -87,7 +104,7 @@
                 <button id="nextBtn" class="pagination-btn" disabled>Next &gt;</button>
             </div> -->
         </div>
-
+        
         <div class="table-wrapper">
             <table id="resultTable">
                 <thead>

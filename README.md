@@ -39,11 +39,11 @@ The service, including `tshark`, `capinfos`, and all dependencies, runs inside a
     ```bash
     docker-compose up --build
     ```
-4.  The service is now running. The API is available at `http://localhost:8000`.
+4.  The service is now running. The API is available at `http://localhost:7000`.
 
 ## API Endpoints
 
-An interactive API documentation (Swagger UI) is available at [http://localhost:8000/docs] after you start the service.
+An interactive API documentation (Swagger UI) is available at [http://localhost:7000/docs] after you start the service.
 
 You can also use `curl` for testing.
 
@@ -55,22 +55,22 @@ You can also use `curl` for testing.
 
 -   **Trigger a full re-scan of all directories:**
     ```bash
-    curl -X POST http://localhost:8000/reindex
+    curl -X POST http://localhost:7000/reindex
     ```
 
 -   **Check the status of an ongoing scan:**
     ```bash
-    curl http://localhost:8000/scan-status | jq
+    curl http://localhost:7000/scan-status | jq
     ```
 
 -   **Backfill total packet counts for already-indexed files:**
     ```bash
-    curl -X POST http://localhost:8000/backfill/total-packets
+    curl -X POST http://localhost:7000/backfill/total-packets
     ```
 
 -   **Check the status of a backfill:**
     ```bash
-    curl http://localhost:8000/backfill-status | jq
+    curl http://localhost:7000/backfill-status | jq
     ```
 
     *(Note: backfill is manual-only and does not run on startup.)*
@@ -80,12 +80,12 @@ You can also use `curl` for testing.
 -   **Get autocomplete suggestions (fuzzy search):**
     ```bash
     # Example: User types "ht"
-    curl "http://localhost:8000/protocols/suggest?q=ht" | jq
+    curl "http://localhost:7000/protocols/suggest?q=ht" | jq
     ```
 
 -   **Search for pcaps containing a specific protocol (e.g., 'sip'):**
     ```bash
-    curl "http://localhost:8000/search?protocol=sip" | jq
+    curl "http://localhost:7000/search?protocol=sip" | jq
     ```
     
 ### 3. Downloading a File
@@ -98,14 +98,14 @@ You can also use `curl` for testing.
     # Example hash found from searching for 'sip'
     FILE_HASH="a1b2c3d4e5f6..." 
 
-    curl -o sip_capture_downloaded.pcap http://localhost:8000/pcaps/download/$FILE_HASH
+    curl -o sip_capture_downloaded.pcap http://localhost:7000/pcaps/download/$FILE_HASH
     ```
 
 ### 4. Service Health
 
 -   **Check if the service is running:**
     ```bash
-    curl http://localhost:8000/health
+    curl http://localhost:7000/health
     ```
 
 ### 5. Backfill search index
@@ -119,3 +119,6 @@ Status
 ```
 curl http://localhost:7000/backfill/rebuild-searchindex-status
 ```
+### 6. Count all files in pcaps folder
+
+curl http://localhost:7000/pcaps/count

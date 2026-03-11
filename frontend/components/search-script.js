@@ -52,6 +52,13 @@ async function loadScanConfigTooltip() {
         const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
         const config = response.data || {};
         const scanModeLabel = SCAN_MODE_TEXT[config.scan_mode] || "Full";
+        
+        // Eric -Update the current scan mode display on the page
+        const scanModeElement = document.getElementById("currentScanMode");
+        if (scanModeElement) {
+            scanModeElement.innerHTML = `Current Scan Mode: <b>${scanModeLabel}</b>`;
+        }
+        //
         const pebcLabel =
             config.scan_mode === "quick" && config.pebc !== null && config.pebc !== undefined && config.pebc !== ""
                 ? config.pebc
@@ -69,6 +76,39 @@ async function loadScanConfigTooltip() {
         }
     } catch (err) {
         tooltipContent.textContent = "Scan config unavailable";
+    }
+}
+
+//Eric - count of files in each scan mode for the tooltip in scan button
+async function loadPcapStats() {
+
+    const statsDiv = document.getElementById("pcapStats");
+    if (!statsDiv) return;
+
+    try {
+        const { data } = await axios.get("http://localhost:7000/pcaps/count");
+
+        statsDiv.innerHTML =
+            `<strong>Pcaps folder:</strong> ${data.pcap_files} Valid Files | ${data.other_files} Other Files | ${data.total_files} Total Files`;
+
+    } catch (error) {
+        console.error("Failed to load PCAP stats:", error);
+        statsDiv.innerHTML = "Failed to load PCAP stats";
+    }
+}
+
+async function loadScanMode() {
+    try {
+        const res = await axios.get('/config');
+        const scanMode = res.data.pcap.scan_mode;
+
+        const el = document.getElementById('scanModeInfo');
+        if (el) {
+            el.innerHTML = `<b>Current Scan Mode:</b> ${scanMode}`;
+        }
+
+    } catch (err) {
+        console.error("Failed to load scan mode", err);
     }
 }
 
@@ -609,9 +649,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (copyAllBtn) {
         copyAllBtn.addEventListener("click", handleCopyAllPaths);
     }
+    // Eric - Load PCAP stats and scan mode on page load
+    loadPcapStats();
+    loadScanMode();
     // When DOM is ready, check current scan state and update UI
     checkScanStateOnReady();
 });
+
 
 async function checkScanStateOnReady() {
     try {

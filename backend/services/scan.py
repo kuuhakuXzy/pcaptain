@@ -261,7 +261,7 @@ class RebuildSearchIndexState(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
-
+########################################################################
 class ScanService:
     scan_status: Dict[str, Any] = {
         "state": ScanState.IDLE,
@@ -401,9 +401,14 @@ class ScanService:
                 for filename in files:
                     check_cancellation(self.scan_cancel_event)
 
-                    if filename in exclude_files or not filename.endswith(
-                        tuple(config.pcap.allowed_file_extensions)
-                    ):
+                    if filename in exclude_files or not filename.endswith(tuple(config.pcap.allowed_file_extensions)):
+                    ##### Eric - update here to log excluded/invalid files and reasons for better monitoring and debugging #####
+                        logger.warning(f"The {filename} is excluded or has an invalid extension, which is not in the allowed list {config.pcap.allowed_file_extensions}.")
+                        config.pcap.processing_errors.append({
+                            "file": filename,
+                            "reason": "EXCLUDED_OR_INVALID_EXTENSION"
+                        })
+                    #####
                         continue
 
                     file_path = os.path.join(root, filename)
@@ -462,14 +467,32 @@ class ScanService:
                         quick_threshold_bytes=quick_threshold_bytes,
                     )
 
+                    ###### Eric - update here to log processing results and reasons for better monitoring and debugging ######
                     if protocol_result is not None:
                         protocol_data, packets_scanned = protocol_result
+                        ######
+                        if packets_scanned == 0:
+                            reason = "INVALID_PCAP_OR_BROKEN_FILE"
                         if not protocol_data:
+                            reason = "NO_PROTOCOLS_FOUND"
+                            
+                            if current_scan_mode == ScanMode.FAST:
+                                reason = "FASTSCAN_LIMITATION"
+                                
                             logger.warning(
-                                f"No protocols found in {filename}. Skipping from index."
+                                "Skipping file from index | file=%s |v path=%s | scan_mode=%s | packets_scanned=%s | reason=%s",
+                                filename,
+                                file_path,
+                                current_scan_mode.value,
+                                packets_scanned,
+                                reason
                             )
+                            config.pcap.processing_errors.append({
+                                "file": filename,
+                                "reason": reason
+                            })
                             continue
-
+                    #########################      
                         protocol_percentages = calculate_protocol_percentages(
                             protocol_data,
                             packets_scanned,
@@ -547,11 +570,24 @@ class ScanService:
                             f"Indexed file {filename} (hash: {file_hash}) with protocols: {', '.join(protocols)}"
                         )
                         files_indexed += 1
+
+                    ######## Eric update code here to log processing errors and reasons
                     else:
+                        reason = "PROCESSING_ERROR"
+
                         logger.warning(
-                            f"Skipping file {filename} from index due to processing error."
+                            "Skipping file from index | file=%s | path=%s | scan_mode=%s | reason=%s",
+                            filename,
+                            file_path,
+                            current_scan_mode.value,
+                            reason
                         )
-                
+
+                        config.pcap.processing_errors.append({
+                            "file": filename,
+                            "reason": reason
+                        })
+                    #########################
                 if target_folder and not found_matching_folder:
                     logger.warning(
                         f"No folder named '{target_folder}' found under {config.pcap.root_directory}."
@@ -563,6 +599,9 @@ class ScanService:
                     }
 
             logger.info(f"Indexing successful. Processed {files_indexed} files.")
+            ##### Eric - update here to log processing errors and reasons for better monitoring and debugging #####
+            logger.info(f"Processing errors: {config.pcap.processing_errors}")
+            #####
             return {"status": "success", "indexed_files": files_indexed}
 
         except asyncio.CancelledError:
@@ -1210,7 +1249,7 @@ class ScanService:
                 return None
 
 
-
+######################################################################
 @with_app_context
 def get_scan_service(*, context: AppContext = None) -> ScanService:
     if not hasattr(context, "_scan_service"):
