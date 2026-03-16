@@ -675,9 +675,30 @@ function getScanModeBadgeHtml(file) {
     return `
         <span class="${badgeClasses}" title="${tooltipText}" aria-label="${tooltipText}">
             ${iconHtml}
+            <span class="scan-help-btn" data-mode="${scanModeRaw}" data-pebc="${pebcValue}" title="Explain scan mode">?</span>
         </span>
     `;
 }
+
+document.addEventListener("click", function(e) {
+
+    if (!e.target.classList.contains("scan-help-btn")) return;
+
+    const mode = e.target.dataset.mode;
+    const pebc = e.target.dataset.pebc;
+
+    let message = "";
+
+    if (mode === "quick") {
+        message = `Quick Scan\n\nSamples packets only (PEBC=${pebc}).\nVery fast but may miss some protocols.`;
+    } else if (mode === "fast") {
+        message = `Fast Scan\n\nOptimized scanning to detect protocols faster than a full scan.`;
+    } else {
+        message = `Full Scan\n\nScans the entire PCAP file using tshark.\nMost accurate but slowest.`;
+    }
+
+    alert(message);
+});
 
 
 function renderTable(files) {

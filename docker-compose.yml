@@ -26,6 +26,7 @@ services:
     ports:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
+      - ./backend:/app
       - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}:ro"
       - "./backend/config/config.yaml:/app/config/config.yaml"
     environment:
@@ -48,6 +49,9 @@ services:
       - backend
     ports:
       - "${FRONTEND_PORT}:${NGINX_PORT}"
+    volumes:
+      - ./frontend/components:/usr/share/nginx/html
+      - ./frontend/config/config.template.js:/usr/share/nginx/html/config.template.js
     env_file:
       - .env
     networks:

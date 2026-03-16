@@ -5,3 +5,4 @@ pcaps/
 .env
 
 AGENTS.md
+*.pyc

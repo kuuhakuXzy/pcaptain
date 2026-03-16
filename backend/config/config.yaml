@@ -6,7 +6,8 @@ redis:
 pcap:
   root_directory: /pcaps
   # Replace with root directory for processed pcap files path when return to client
-  prefix_str: /home/kendrick/Desktop/main_pcap/pcaps
+
+  prefix_str: ./pcaps
   excluded_protocols:
     - json
   allowed_file_extensions:
@@ -14,8 +15,9 @@ pcap:
     - .pcapng
     - .cap
   scan_interval_seconds: 3600 # 1 hour
-  scan_mode: fast # options: full, quick, fast
+  scan_mode: full # options: full, quick, fast
   # Quick scan (tshark sampling) settings
+
   # for files >= min_file_size, and only scan `pebc` of bytes.
   quick_scan:
     pebc: 0.1

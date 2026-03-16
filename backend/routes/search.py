@@ -112,9 +112,42 @@ async def fuzzy_search_pcaps(
         if p.lower() not in excluded
     ]
 
+    # protocols = resolve_protocols(protocol, candidates)
+    # if not protocols:
+    #     return {"total": 0, "page": page, "limit": limit, "data": []}
+
     protocols = resolve_protocols(protocol, candidates)
+
+    filename_matches = []
+
     if not protocols:
-        return {"total": 0, "page": page, "limit": limit, "data": []}
+        # fallback to filename search
+        cursor = 0
+        q = protocol.lower()
+
+        while True:
+            cursor, keys = await asyncio.to_thread(
+                redis.scan, cursor, match=f"{PCAP_FILE_KEY_PREFIX}:*", count=500
+            )
+
+            if keys:
+                pipe = redis.pipeline()
+                for key in keys:
+                    pipe.hget(key, "filename")
+
+                filenames = await asyncio.to_thread(pipe.execute)
+
+                for key, fname in zip(keys, filenames):
+                    if fname and q in fname.lower():
+                        filename_matches.append(key.split(":")[-1])
+
+            if cursor == 0:
+                break
+
+        if not filename_matches:
+            return {"total": 0, "page": page, "limit": limit, "data": []}
+
+
 
     resolved_set = {p.lower() for p in protocols}
 
@@ -125,7 +158,15 @@ async def fuzzy_search_pcaps(
     tmp_z = f"{base_tmp}:z"
     tmp_sorted = f"{base_tmp}:sorted"
 
-    await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+    # Modify this line 
+    # await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+
+    if protocols:
+        await asyncio.to_thread(redis.sunionstore, tmp_set, *protocol_keys)
+
+    if filename_matches:
+        await asyncio.to_thread(redis.sadd, tmp_set, *filename_matches)
+
 
     ## disable because of bug:
     # searh for h1 -> not return h1 files because `json` in the these files
