@@ -3,6 +3,7 @@ from enum import Enum
 from fastapi import APIRouter, HTTPException, Query, Depends
 import asyncio
 import json
+import re
 
 from services.context import get_app_context, AppContext
 from services.logger import get_logger
@@ -80,6 +81,36 @@ def resolve_protocols(
 
     return results[:max_fuzzy]
 
+def parse_shorthand_query(raw: str):
+    """
+    Supports both "!" and "not"
+    """
+    s = (raw or "").strip().lower()
+    if not s:
+        return [], []
+
+    tokens = [t for t in re.compile(r"[,\s]+").split(s) if t]
+    include, exclude = [], []
+    
+    for t in tokens:
+        if t.startswith("!"):
+            v = t[1:].strip()
+            if v:
+                exclude.append(v)
+        else:
+            include.append(t)
+
+    def dedup(xs):
+        out, seen = [], set()
+        for x in xs:
+            if not x or x in seen:
+                continue
+            seen.add(x)
+            out.append(x)
+        return out
+
+    return dedup(include), dedup(exclude)
+
 async def search_by_filename(query: str, redis, sort_index: str) -> set[str]:
     q = query.lower().strip()
     all_ids = await asyncio.to_thread(redis.zrange, sort_index, 0, -1)
@@ -132,7 +163,16 @@ async def fuzzy_search_pcaps(
         all_protocols = await get_all_protocols(redis)
         protocol_candidates = list(all_protocols)
 
-        protocols = resolve_protocols(protocol, protocol_candidates)
+        include_tokens, exclude_tokens = parse_shorthand_query(protocol)
+
+        protocol_for_resolve = " ".join(include_tokens).strip()
+
+        if not protocol_for_resolve:
+            protocol_for_resolve = " ".join(exclude_tokens).strip()
+
+        # resolve only include tokens to find candidate files
+        protocols = resolve_protocols(protocol_for_resolve, protocol_candidates)
+
         protocol_resolved_set = {p.lower() for p in protocols}
         protocol_keys = [f"{PROTOCOCOL_INDEX_PREFIX}:{p.lower()}" for p in protocols]
 
