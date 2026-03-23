@@ -802,12 +802,12 @@ function buildDownloadUrlWithDisplayFilter(file) {
     // No query => download original
     if (!raw) return file.download_url;
 
-    const df = toTsharkDisplayFilterFromShorthand(raw);
+    const filter = toTsharkDisplayFilterFromShorthand(raw);
     // If convert somehow empty => fallback original
-    if (!df) return file.download_url;
+    if (!filter) return file.download_url;
 
     const params = new URLSearchParams();
-    params.set("df", df);
+    params.set("filter", filter);
     return `${file.download_url}?${params.toString()}`;
 }
 
