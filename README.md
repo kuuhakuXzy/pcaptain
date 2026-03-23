@@ -120,5 +120,6 @@ Status
 curl http://localhost:7000/backfill/rebuild-searchindex-status
 ```
 ### 6. Count all files in pcaps folder
-
+```
 curl http://localhost:7000/pcaps/count
+```
