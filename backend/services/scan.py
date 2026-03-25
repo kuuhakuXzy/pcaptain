@@ -196,6 +196,9 @@ async def get_all_protocols(redis: Redis):
     # ZSET → list[str]
     return await asyncio.to_thread(redis.zrange, AUTOCOMPLETE_KEY, 0, -1)
 
+async def get_all_filenames(redis: Redis):
+    # SET → list[str]
+    return await asyncio.to_thread(redis.smembers, "pcap:filenames")
 
 def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
     command = ["capinfos", "-M", "-c", pcap_file]
@@ -532,6 +535,11 @@ class ScanService:
                         pipe.zadd(LEX_INDEX_FILENAME, {filename_norm: 0}, nx=True)
                         pipe.zadd(LEX_INDEX_PATH, {path_norm: 0}, nx=True)
 
+                        #filename index
+                        pipe.sadd("pcap:filenames", filename)
+                        pipe.hset("pcap:filename:map", filename, file_hash)
+                        logger.info(f"INDEXING FILENAME: {filename} -> {file_hash}")
+                        
                         # ---- SORT INDEXES ----
                         # Numeric sort (true score)
                         pipe.zadd(SORT_INDEX_SIZE, {file_hash: file_size})

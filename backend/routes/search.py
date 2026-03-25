@@ -15,7 +15,8 @@ from services.scan import (
     SORT_INDEX_PACKET_COUNT,
     TMP_KEY_TTL_SECONDS,
     TMP_RESULT_PREFIX,
-    get_all_protocols
+    get_all_protocols,
+    get_all_filenames
 )
 from utils.protocols_utils import rank_protocols
 from uuid import uuid4
@@ -88,6 +89,55 @@ def resolve_protocols(
     fuzzy = rank_protocols(q, candidates, max_dist=0.5)
     return fuzzy[:max_fuzzy]
 
+def resolve_filenames(
+    query: str,
+    candidates: list[str],
+    *,
+    min_prefix_len: int = 3,
+    max_contains_matches: int = 20,
+    max_prefix_matches: int = 10,
+    max_fuzzy: int = 20,
+) -> list[str]:
+    q = query.lower()
+
+    exact = []
+    contains = []
+    prefix = []
+
+    for f in candidates:
+        fl = f.lower()
+
+        if fl == q:
+            exact.append(f)
+            continue
+
+        if q in fl:
+            contains.append(f)
+            continue
+
+        if fl.startswith(q):
+            prefix.append(f)
+
+    if exact:
+        return exact
+
+    if (
+        len(q) >= min_prefix_len
+        and contains
+        and len(contains) <= max_contains_matches
+    ):
+        return contains
+
+    if (
+        len(q) >= min_prefix_len
+        and prefix
+        and len(prefix) <= max_prefix_matches
+    ):
+        return prefix
+
+    fuzzy = rank_protocols(q, candidates, max_dist=0.5)
+    return fuzzy[:max_fuzzy]
+
 
 @router.get("/search", summary="Search for pcaps containing a specific protocol")
 async def fuzzy_search_pcaps(
@@ -118,36 +168,25 @@ async def fuzzy_search_pcaps(
 
     protocols = resolve_protocols(protocol, candidates)
 
+
+    all_filenames = await get_all_filenames(redis)
+
+    matched_filenames = resolve_filenames(protocol, list(all_filenames))
+
     filename_matches = []
+    logger.info(all_filenames)
 
-    if not protocols:
-        # fallback to filename search
-        cursor = 0
-        q = protocol.lower()
+    if matched_filenames:
+        pipe = redis.pipeline()
+        for fname in matched_filenames:
+            pipe.hget("pcap:filename:map", fname)
 
-        while True:
-            cursor, keys = await asyncio.to_thread(
-                redis.scan, cursor, match=f"{PCAP_FILE_KEY_PREFIX}:*", count=500
-            )
+        ids = await asyncio.to_thread(pipe.execute)
 
-            if keys:
-                pipe = redis.pipeline()
-                for key in keys:
-                    pipe.hget(key, "filename")
+        filename_matches = [fid for fid in ids if fid]
 
-                filenames = await asyncio.to_thread(pipe.execute)
-
-                for key, fname in zip(keys, filenames):
-                    if fname and q in fname.lower():
-                        filename_matches.append(key.split(":")[-1])
-
-            if cursor == 0:
-                break
-
-        if not filename_matches:
-            return {"total": 0, "page": page, "limit": limit, "data": []}
-
-
+    if not protocols and not filename_matches:
+        return {"total": 0, "page": page, "limit": limit, "data": []}
 
     resolved_set = {p.lower() for p in protocols}
 
@@ -166,6 +205,7 @@ async def fuzzy_search_pcaps(
 
     if filename_matches:
         await asyncio.to_thread(redis.sadd, tmp_set, *filename_matches)
+
 
 
     ## disable because of bug:
