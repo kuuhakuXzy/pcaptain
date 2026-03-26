@@ -362,6 +362,41 @@ class ScanService:
         )
         return False
 
+    # Function to extract the capture time of the first packet
+    def get_capture_start_tshark(self, pcap_file: str) -> Optional[float]:
+        command = [
+            "tshark",
+            "-r", pcap_file,
+            "-T", "fields", 
+            "-e", "frame.time_epoch",
+            "-c", "1"
+        ]
+
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # ⚠️ DO NOT overwrite scan_process["tshark"]
+            # because your protocol scan already uses it
+
+            stdout, stderr = process.communicate(timeout=5)
+
+            if stdout:
+                return float(stdout.strip())
+
+        except subprocess.TimeoutExpired:
+            process.kill()
+            logger.warning(f"tshark timeout when reading {pcap_file}")
+        except Exception as e:
+            logger.warning(f"Failed to extract capture time for {pcap_file}: {e}")
+
+        return None
+
+
     @with_app_context
     async def scan_and_index(
         self,
@@ -448,6 +483,16 @@ class ScanService:
                     )
                     if not should_scan_now:
                         continue
+                    
+                    last_modified = await asyncio.to_thread(os.path.getmtime, file_path)
+
+                    capture_start = await asyncio.to_thread(
+                        self.get_capture_start_tshark,
+                        file_path
+                    )
+                    
+                    if capture_start is None:
+                        capture_start = last_modified
 
                     quick_threshold_bytes: Optional[int] = None
                     if current_scan_mode == ScanMode.QUICK and current_pebc is not None:
@@ -513,9 +558,11 @@ class ScanService:
                                     protocol_percentages
                                 ),
                                 "packets_scanned": packets_scanned,
-                                "last_modified": await asyncio.to_thread(
-                                    os.path.getmtime, file_path
-                                ),
+                                # "last_modified": await asyncio.to_thread(
+                                #     os.path.getmtime, file_path
+                                # ),
+                                "last_modified": last_modified,
+                                "capture_start":capture_start,
                                 "last_scanned": current_time,
                                 "scan_mode": current_scan_mode.value,
                                 "pebc": "" if current_pebc is None else current_pebc,

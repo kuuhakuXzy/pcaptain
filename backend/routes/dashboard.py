@@ -112,6 +112,7 @@ async def build_dashboard_summary(context: AppContext):
         protocol_presence = defaultdict(int)
         diversity_dist = defaultdict(int)
         age_dist = defaultdict(int)
+        year_dist = defaultdict(int)
         directory_dist = defaultdict(int)
         extension_dist = defaultdict(int)
         rate_dist = defaultdict(int)
@@ -136,6 +137,7 @@ async def build_dashboard_summary(context: AppContext):
                 packet_count = int(data.get("total_packets", 0))
                 protocols = data.get("protocols", "").split(',')
                 last_modified = float(data.get("last_modified", now))
+                capture_start = data.get("capture_start")
                 file_path = data.get("path", "")
                 scan_mode = data.get("scan_mode", "full").lower()
 
@@ -169,6 +171,16 @@ async def build_dashboard_summary(context: AppContext):
                 age_seconds = now - last_modified
                 age_bucket = _bucketize(age_seconds, AGE_BUCKETS)
                 age_dist[age_bucket] += 1
+
+                # Capture start
+                if capture_start:
+                    try:
+                        year = time.gmtime(float(capture_start)).tm_year
+                        year_dist[str(year)] += 1
+                    except Exception:
+                        year_dist["unknown"] += 1
+                else:
+                    year_dist["unknown"] += 1
 
                 # Size per packet distribution
                 if packet_count >= 10:
@@ -214,6 +226,7 @@ async def build_dashboard_summary(context: AppContext):
             "protocol_presence_distribution": dict(protocol_presence),
             "protocol_diversity_distribution": dict(diversity_dist),
             "file_age_distribution": dict(age_dist),
+            "capture_year_distribution": dict(year_dist),
             "directory_distribution": dict(directory_dist),
             "extension_distribution": dict(extension_dist),
             "size_per_packet_distribution": dict(rate_dist),

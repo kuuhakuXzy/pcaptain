@@ -101,6 +101,13 @@ function renderDashboard(data) {
     // Render scan mode stats
     renderScanModeStats(data.scan_mode_distribution || {}, data.total_files || 0);
 
+    // capture year
+    const yearData = data.capture_year_distribution || {};
+
+    const sortedYears = Object.keys(yearData).sort();
+    const sortedValues = sortedYears.map(y => yearData[y]);
+
+
     // Render charts
     charts.sizeDistChart = createBarChart(
         'sizeDistChart',
@@ -133,6 +140,12 @@ function renderDashboard(data) {
         data.file_age_distribution,
         'Files',
         ['<24h', '1-7d', '7-30d', '>30d']
+    );
+
+    charts.captureYearChart = createBarChart(
+        'captureYearChart',
+        Object.fromEntries(sortedYears.map((y, i) => [y, sortedValues[i]])),
+        'Files'
     );
 
     charts.sizePerPacketChart = createBarChart(
