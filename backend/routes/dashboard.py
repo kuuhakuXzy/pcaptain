@@ -117,6 +117,9 @@ async def build_dashboard_summary(context: AppContext):
         rate_dist = defaultdict(int)
         scan_mode_dist = defaultdict(int)
         total_files = 0
+        combo_dist = defaultdict(int)
+
+        TOP_COMBO_LIMIT = 10
 
         cursor = 0
 
@@ -164,6 +167,12 @@ async def build_dashboard_summary(context: AppContext):
 
                 # Protocol diversity
                 diversity_dist[str(len(protocols))] += 1
+
+                # Protocol combination distribution
+                clean_protocols = sorted([p.strip().lower() for p in protocols if p.strip()])
+                if clean_protocols:
+                    combo_key = " + ".join(clean_protocols)
+                    combo_dist[combo_key] += 1
 
                 # File age
                 age_seconds = now - last_modified
@@ -217,6 +226,7 @@ async def build_dashboard_summary(context: AppContext):
             "directory_distribution": dict(directory_dist),
             "extension_distribution": dict(extension_dist),
             "size_per_packet_distribution": dict(rate_dist),
+            "protocol_combination_distribution": dict(sorted(combo_dist.items(), key=lambda x: x[1], reverse=True)[:TOP_COMBO_LIMIT]),
         }
 
         redis.setex(

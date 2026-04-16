@@ -102,19 +102,69 @@ function startScanStatusPolling() {
             scanStatusTimer = null;
         }
     }, CHECK_SCAN_FILES_STATUS_INTERVAL);
-}  
+}
+
+// Helper function
+function smartFetch() {
+    const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+    fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+}
 
 document.getElementById("searchBtn").addEventListener("click", () => {
+    const search = document.getElementById("searchInput").value.trim();
+
+    if (isSearchMode) {
+        return clearSearchAndShowAll();
+    }
+
+    if (!search) {
+        return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+    }
+
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
+    setSearchMode(true);
 })
 
 const searchInput = document.getElementById("searchInput");
+const searchBtn = document.getElementById("searchBtn");
+
+// Search/Clear mode state
+let isSearchMode = false;
+
+function setSearchMode(on) {
+    isSearchMode = on;
+    if (!searchBtn) return;
+
+    if (on) {
+        searchBtn.textContent = "Clear";
+        searchBtn.title = "Clear search and show all files";
+    } else {
+        searchBtn.textContent = "Search";
+        searchBtn.title = "Search";
+    }
+}
+
+function clearSearchAndShowAll() {
+    searchInput.value = "";
+    currentPage = 1;
+
+    if (typeof hideSuggestion === "function") hideSuggestion();
+
+    setSearchMode(false);
+    fetchFiles(true); // show all files without reloading
+}
+
 searchInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") {
+        const search = document.getElementById("searchInput").value.trim();
+        if (!search) {
+            return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+        }
         currentPage = 1; // Reset to page 1 on new search
         hideSuggestion();
         fetchFiles();
+        setSearchMode(true);
     }
 });
 
@@ -132,8 +182,8 @@ loadScanConfigTooltip();
 if (limitSelect) {
     limitSelect.addEventListener("change", (e) => {
         itemsPerPage = parseInt(e.target.value);
-        currentPage = 1; 
-        fetchFiles();
+        currentPage = 1;
+        smartFetch();
     });
 }
 
@@ -141,7 +191,7 @@ if (sortBySelect) {
     sortBySelect.addEventListener("change", (e) => {
         currentSortBy = e.target.value;
         currentPage = 1; 
-        fetchFiles();
+        smartFetch();
     });
 }
 
@@ -149,7 +199,7 @@ if (sortOrderSelect) {
     sortOrderSelect.addEventListener("change", (e) => {
         currentDescending = e.target.value === "true";
         currentPage = 1; 
-        fetchFiles();
+        smartFetch();
     });
 }
 
@@ -412,12 +462,10 @@ async function syncScanStateOnLoad() {
 }
 
 syncScanStateOnLoad();
+fetchFiles(true); // Load initial files on page load
 
 async function fetchFiles() {
     const search = document.getElementById("searchInput").value.toLowerCase().trim();
-    if (!search) {
-        return showToast(TOAST_STATUS.WARNING, "Please enter protocol");
-    }
 
     try {
         displaySearchLoadingSpinner();
@@ -477,7 +525,8 @@ function updatePaginationControls(totalItems) {
         if (!isDisabled && !isActive && pageNum !== null) {
             btn.addEventListener("click", () => {
                 currentPage = pageNum;
-                fetchFiles();
+                const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+                fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
             });
         }
         buttonsGroup.appendChild(btn);
@@ -556,7 +605,8 @@ function updatePaginationControls(totalItems) {
 
     select.addEventListener("change", (e) => {
         currentPage = parseInt(e.target.value);
-        fetchFiles();
+        const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+        fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
     });
     infoGroup.appendChild(select);
 
@@ -679,13 +729,95 @@ function getScanModeBadgeHtml(file) {
     `;
 }
 
+function parseSearchShorthand(raw) {
+    // Supports: "sip !tcp !udp", "sip, !tcp", multiple spaces
+    const s = (raw || "").trim();
+    if (!s) return { include: [], exclude: [] };
+
+    const tokens = s
+        .split(/[\s,]+/g)
+        .map(t => t.trim())
+        .filter(Boolean);
+
+    const include = [];
+    const exclude = [];
+
+    for (const t of tokens) {
+        if (t.startsWith("!")) {
+            const v = t.slice(1).trim();
+            if (v) exclude.push(v);
+        } else {
+            include.push(t);
+        }
+    }
+
+    const dedupCaseInsensitive = (items) => {
+        const uniqueItems = [];
+        const seenNormalized = new Set();
+
+        for (const item of items) {
+            const normalizedKey = item.toLowerCase();
+
+            // Skip empty strings and anything we've already seen
+            if (!normalizedKey || seenNormalized.has(normalizedKey)) continue;
+
+            seenNormalized.add(normalizedKey);
+            uniqueItems.push(item);
+        }
+
+        return uniqueItems;
+    };
+
+    return { include: dedupCaseInsensitive(include), exclude: dedupCaseInsensitive(exclude) };
+}
+
+function toTsharkDisplayFilterFromShorthand(raw) {
+    const { include, exclude } = parseSearchShorthand(raw);
+
+    // If user only types "!tcp" (no include), treat as "not tcp"
+    const includeExpr = include.length
+        ? include.map(p => `(${p})`).join(" or ")
+        : "";
+
+    const excludeExpr = exclude.length
+        ? exclude.map(p => `(${p})`).join(" or ")
+        : "";
+
+    if (includeExpr && excludeExpr) {
+        return `((${includeExpr}) and not (${excludeExpr}))`;
+    }
+    if (includeExpr) {
+        return `(${includeExpr})`;
+    }
+    if (excludeExpr) {
+        return `(not (${excludeExpr}))`;
+    }
+    return "";
+}
+
+function buildDownloadUrlWithDisplayFilter(file) {
+    const input = document.getElementById("searchInput");
+    const raw = (input ? input.value : "").trim();
+
+    // No query => download original
+    if (!raw) return file.download_url;
+
+    const filter = toTsharkDisplayFilterFromShorthand(raw);
+    // If convert somehow empty => fallback original
+    if (!filter) return file.download_url;
+
+    const params = new URLSearchParams();
+    params.set("filter", filter);
+    return `${file.download_url}?${params.toString()}`;
+}
+
 
 function renderTable(files) {
     const tbody = document.getElementById('resultBody');
     tbody.innerHTML = '';
 
     if (!files || files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No result found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">No result found</td></tr>';
         return;
     }
 
@@ -697,7 +829,7 @@ function renderTable(files) {
         // Updated extra info column
         tr.innerHTML = `
             <td data-label="Filename">
-                <a href="${file.download_url}" class="file-link" download>
+                <a href="${buildDownloadUrlWithDisplayFilter(file)}" class="file-link" download>
                     ${file.filename}
                 </a>
             </td>

@@ -81,6 +81,7 @@ function showDashboard() {
 }
 
 function renderDashboard(data) {
+    console.log("combo data:", data.protocol_combination_distribution);
     showDashboard();
     
     // Update timestamp
@@ -126,6 +127,15 @@ function renderDashboard(data) {
         'diversityChart',
         data.protocol_diversity_distribution,
         'Protocol Count'
+    );
+
+    const comboData = data.protocol_combination_distribution || {};
+    console.log('combo data:', comboData);
+    console.log('combo keys:', Object.keys(comboData));
+
+    charts.protocolComboChart = createProtocolComboPieChart(
+        'protocolComboChart',
+        comboData
     );
 
     charts.ageDistChart = createBarChart(
@@ -379,9 +389,23 @@ function createHorizontalBarChart(canvasId, data, label) {
 
 function createPieChart(canvasId, data, label) {
     const ctx = document.getElementById(canvasId).getContext('2d');
-    
-    const labels = Object.keys(data).sort((a, b) => parseInt(a) - parseInt(b));
-    const values = labels.map(l => data[l] || 0);
+
+    // Sort by count descending
+    const sorted = Object.entries(data).sort((a, b) => b[1] -a[1]);
+
+    // Max number of individual slices to show (excluding 'Others')
+    const MAX_ITEMS = 5;
+
+    // count === 1 OR rank > MAX_ITEMS → goes to Others
+    const topEntries = sorted.filter(([, count], idx) => count > 1 && idx < MAX_ITEMS);
+    const otherEntries = sorted.filter(([, count], idx) => count === 1 || idx >= MAX_ITEMS);
+    const otherCount = otherEntries.reduce((sum, [, count]) => sum + count, 0);
+
+    const finalEntries = [...topEntries];
+    if (otherCount > 0) finalEntries.push(['Others', otherCount]);
+
+    const labels = finalEntries.map(([key]) => key);
+    const values = finalEntries.map(([, count]) => count);
 
     const colors = [
         'rgba(102, 126, 234, 0.8)',
@@ -391,20 +415,23 @@ function createPieChart(canvasId, data, label) {
         'rgba(239, 68, 68, 0.8)',
         'rgba(59, 130, 246, 0.8)',
         'rgba(168, 85, 247, 0.8)',
+        'rgba(236, 72, 153, 0.8)',
+        'rgba(20, 184, 166, 0.8)',
+        'rgba(251, 146, 60, 0.8)',
     ];
 
     // Render custom legend list
     const legendContainer = document.getElementById('diversityLegendList');
     if (legendContainer) {
         legendContainer.innerHTML = '';
-        labels.forEach((lbl, idx) => {
+        finalEntries.forEach(([lbl, count], idx) => {
             const color = colors[idx % colors.length];
             const item = document.createElement('div');
             item.className = 'legend-item';
             item.style.borderLeftColor = color;
             item.innerHTML = `
-                <span class="legend-item-label">${lbl} protocols</span>
-                <span class="legend-item-count">${values[idx]}</span>
+                <span class="legend-item-label">${lbl === "Others" ? "Others" : `${lbl} protocols`}</span>
+                <span class="legend-item-count">${count}</span>
             `;
             legendContainer.appendChild(item);
         });
@@ -413,7 +440,7 @@ function createPieChart(canvasId, data, label) {
     return new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: labels.map(l => `${l} protocols`),
+            labels: labels.map(lbl => lbl === 'Others' ? 'Others' : `${lbl} protocols`),
             datasets: [{
                 label: label,
                 data: values,
@@ -428,10 +455,133 @@ function createPieChart(canvasId, data, label) {
             plugins: {
                 legend: {
                     display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (context) => {
+                            return context[0].label;
+                        },
+                        label: (context) => {
+                            const count = context.raw;
+                            const total = context.dataset.data.reduce((sum, count) => sum + count, 0);
+                            const pct = ((count / total) * 100).toFixed(1);
+                            
+                            
+                            // Default tooltip for normal slices
+                            if (context.label !== 'Others') {
+                                return ` ${count} files (${pct}%)`;
+                            }
+
+                            // Build detailed tooltip for Others slice
+                            const lines = [
+                                ` ${count} files (${pct}%)`,
+                                ` ─────────────────`,
+                                ...otherEntries.map(([lbl, count]) => ` • ${lbl} protocols: (${count} file${count > 1 ? 's' : ''})`)
+                            ];
+
+                            return lines;
+                        }
+                    }
                 }
             }
         }
     });
+}
+
+function createProtocolComboPieChart(canvasId, data) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+
+    // Sort by count descending
+    const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
+
+    // Max number of individual slices to show (excluding 'Others')
+    const MAX_ITEMS = 5;
+
+    // rank > MAX_ITEMS or count = 1 => will be grouped as 'Others'
+    const topEntries = sorted.filter(([, count], idx) => count > 1 && idx < MAX_ITEMS);
+    const otherEntries = sorted.filter(([, count], idx) => count === 1 || idx >= MAX_ITEMS);
+    const otherCount = otherEntries.reduce((sum, [, count]) => sum + count, 0);
+
+    const finalEntries = [...topEntries];
+    if (otherCount > 0) finalEntries.push(['Others', otherCount]);
+
+    const comboLabels = finalEntries.map(([combo]) => combo);
+    const comboValues = finalEntries.map(([, value]) => value);
+
+    const colors = [
+        'rgba(102, 126, 234, 0.8)',
+        'rgba(118, 75, 162, 0.8)',
+        'rgba(16, 185, 129, 0.8)',
+        'rgba(245, 158, 11, 0.8)',
+        'rgba(239, 68, 68, 0.8)',
+        'rgba(59, 130, 246, 0.8)',
+        'rgba(168, 85, 247, 0.8)',
+        'rgba(236, 72, 153, 0.8)',
+        'rgba(20, 184, 166, 0.8)',
+        'rgba(251, 146, 60, 0.8)',
+    ];
+
+    // Render legend items
+    const legendContainer = document.getElementById('protocolComboLegendList');
+    if (legendContainer) {
+        legendContainer.innerHTML = '';
+        comboLabels.forEach((lbl, idx) => {
+            const color = colors[idx % colors.length];
+            const shortLabel = lbl.length > 40 ? lbl.slice(0, 37) + '...' : lbl;
+            const item = document.createElement('div');
+
+            item.className = 'legend-item';
+            item.style.borderLeftColor = color;
+
+            item.innerHTML = `
+                <span class="legend-item-label" title="${lbl}">${shortLabel}</span>
+                <span class="legend-item-count">${comboValues[idx]}</span>
+            `;
+            legendContainer.appendChild(item);
+        })
+    }
+
+    return new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: comboLabels,
+            datasets: [{
+                data: comboValues,
+                backgroundColor: colors,
+                borderWidth: 1,
+                borderColor: '#ffffff2f'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (context) => {
+                            return context[0].label;
+                        },
+                        label: (context) => {
+                            const count = context.raw;
+                            const total = context.dataset.data.reduce((sum, count) => sum + count, 0);
+                            const pct = ((count / total) * 100).toFixed(1);
+
+                            // Default tooltip for normal slices
+                            // Default tooltip for normal slices
+                            if (context.label !== 'Others') {
+                                return ` ${count} files (${pct}%)`;
+                            }
+
+                            return ` ${count} files (${pct}%)`
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 // Cleanup on page unload
