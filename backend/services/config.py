@@ -34,7 +34,6 @@ class QuickScanConfig(BaseModel):
 class PcapConfig(BaseModel):
     root_directory: str = "/pcaps"
     prefix_str: Optional[str] = None
-    excluded_protocols: Set[str] = Field(default_factory=set)
     allowed_file_extensions: Set[str] = Field(default_factory=lambda: {".pcap", ".pcapng", ".cap"})
     scan_interval_seconds: int = 300
     scan_mode: ScanMode = ScanMode.FULL
