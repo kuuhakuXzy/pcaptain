@@ -2,7 +2,7 @@ from enum import Enum
 import json
 import os
 import re
-from typing import Any, Dict, Optional, List, Tuple
+from typing import Any, Dict, Optional, List, Tuple, Set
 from threading import Event
 import hashlib
 import asyncio
@@ -40,6 +40,10 @@ REBUILD_DIRTY = "pcap:lex:dirty"
 # Temporary keys
 TMP_RESULT_PREFIX = "pcap:tmp:search"
 TMP_KEY_TTL_SECONDS = 5
+
+# Maximum number of pcap files scanned
+# Inscrease if the server has more CPU/RAM
+MAX_PARALLEL_SCANS = 4
 
 
 def parse_size_bytes(value: Optional[str], default: int) -> int:
@@ -359,6 +363,195 @@ class ScanService:
         )
         return False
 
+    # Collect the list of files to scan
+    async def collect_files(
+        self,
+        root_directory: str,
+        exclude_files: List[str],
+        allowed_extensions: tuple,
+        target_folder: Optional[str],
+    ) -> Tuple[List[str], bool]:
+        collected: List[str] = []
+        found_matching_folder = False
+
+        for root, dirs, files in await asyncio.to_thread(os.walk, root_directory):
+            check_cancellation(self.scan_cancel_event)
+            
+            if target_folder:
+                if os.path.basename(root) != target_folder:
+                    continue
+                found_matching_folder = True
+
+            for filename in files:
+                if filename in exclude_files or not filename.endswith(allowed_extensions):
+                    continue
+                collected.append(os.path.join(root, filename))
+
+        return collected, found_matching_folder
+
+    # Process a signle file
+    async def process_one_file(
+        self,
+        file_path: str,
+        *,
+        semaphore: asyncio.Semaphore,
+        seen_hashes: Set[str],
+        seen_hashes_lock: asyncio.Lock,
+        counter_lock: asyncio.Lock,
+        files_indexed_container: List[int],
+        redis_client,
+        config,
+        context: AppContext,
+    ) -> None:
+        # Scan and index a single pcap file
+        async with semaphore:
+            check_cancellation(self.scan_cancel_event)
+
+            filename = os.path.basename(file_path)
+
+            file_size = await asyncio.to_thread(os.path.getsize, file_path)
+
+            file_hash = await calculate_sha256(file_path)
+
+            async with seen_hashes_lock:
+                if file_hash in seen_hashes:
+                    logger.info(
+                        f"Skipping {file_path} (duplicate hash already processed in this scan)"
+                    )
+                    return
+                seen_hashes.add(file_hash)
+
+            # Determine scan mode
+            pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+            base_scan_mode = config.pcap.scan_mode
+
+            qs = config.pcap.quick_scan
+            if isinstance(qs.min_file_size, int):
+                quick_min_size_bytes = qs.min_file_size
+            else:
+                quick_min_size_bytes = parse_size_bytes(str(qs.min_file_size), default=0)
+
+            current_scan_mode, current_pebc, current_config_version = get_effective_scan_mode(
+                file_size,
+                base_scan_mode,
+                quick_scan_pebc=qs.pebc,
+                quick_scan_min_file_size_bytes=quick_min_size_bytes,
+                quick_scan_config_version=qs.config_version,
+            )
+
+            should_scan_now = await self.should_process_file(
+                redis_client=redis_client,
+                pcap_key=pcap_key,
+                file_path=file_path,
+                current_scan_mode=current_scan_mode,
+                current_pebc=current_pebc,
+                current_config_version=current_config_version,
+            )
+
+            if not should_scan_now:
+                return
+
+            quick_threshold_bytes: Optional[int] = None
+            if current_scan_mode == ScanMode.QUICK and current_pebc is not None:
+                quick_threshold_bytes = int(file_size * current_pebc)
+            
+            logger.info("Processing file: %s (scan_mode: %s)", file_path, current_scan_mode.value)
+
+            # Call fastscan
+            check_cancellation(self.scan_cancel_event)
+            protocol_result = await self.get_protocols_from_pcap(
+                file_path,
+                excluded_protocols=None,
+                scan_mode=current_scan_mode,
+                quick_threshold_bytes=quick_threshold_bytes,
+            )
+
+            if protocol_result is None:
+                logger.warning(f"Skipping file {filename} from index due to processing error.")
+                return
+            
+            protocol_data, packets_scanned = protocol_result
+
+            if not protocol_data:
+                logger.warning(f"No protocols found in {filename}. Skipping from index.")
+                return
+
+            # Compute metadata
+            protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
+
+            # Recompute hash in case the file changed during scan
+            file_hash = await calculate_sha256(file_path)
+            pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+
+            protocols = sorted(list(protocol_data.keys()))
+            download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
+            total_packets = await get_total_packets_from_pcap(file_path)
+
+            if total_packets is None:
+                logger.warning(f"capinfos failed for {file_path}; continuing without total_packets")
+                total_packets = 0
+
+            filename_norm = filename.lower()
+            path_norm = file_path.lower()
+            current_time = time.time()
+
+            # Write to Redis
+            pipe = redis_client.pipeline()
+
+            pipe.hset(
+                pcap_key,
+                mapping={
+                    "filename": filename,
+                    "filename_sort": filename_norm,
+                    "source_directory": os.path.dirname(file_path),
+                    "path": file_path,
+                    "path_sort": path_norm,
+                    "size_bytes": file_size,
+                    "download_url": download_url,
+                    "protocols": ",".join(protocols),
+                    "total_packets": total_packets,
+                    "protocol_counts": json.dumps(protocol_data),
+                    "protocol_percentages": json.dumps(protocol_percentages),
+                    "packets_scanned": packets_scanned,
+                    "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
+                    "last_scanned": current_time,
+                    "scan_mode": current_scan_mode.value,
+                    "pebc": "" if current_pebc is None else current_pebc,
+                    "config_version": current_config_version,
+                }
+            )
+
+            autocomplete_payload = {proto: 0 for proto in protocols}
+
+            if autocomplete_payload:
+                pipe.zadd(AUTOCOMPLETE_KEY, autocomplete_payload)
+
+            for proto in protocols:
+                index_key = f"{PROTOCOCOL_INDEX_PREFIX}:{proto.lower()}"
+                pipe.sadd(index_key, file_hash)
+            
+            # Lexicographical indexes
+            pipe.zadd(LEX_INDEX_FILENAME, {filename_norm: 0}, nx=True)
+            pipe.zadd(LEX_INDEX_PATH, {path_norm: 0}, nx=True)
+
+            # Sort indexes
+            pipe.zadd(SORT_INDEX_SIZE, {file_hash: file_size})
+            pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: total_packets or 0})
+            pipe.zadd(SORT_INDEX_FILENAME, {file_hash: 0})
+            pipe.zadd(SORT_INDEX_PATH, {file_hash: 0})
+
+            await asyncio.to_thread(pipe.execute)
+
+            logger.info(
+                "Indexed file %s (hash: %s) with protocols: %s",
+                filename,
+                file_hash,
+                ", ".join(protocols),
+            )
+
+            async with counter_lock:
+                files_indexed_container[0] += 1
+
     @with_app_context
     async def scan_and_index(
         self,
@@ -367,209 +560,87 @@ class ScanService:
         *,
         context: AppContext = None,
     ) -> dict:
-        seen_hashes = set()
-
         if exclude_files is None:
             exclude_files = []
 
         redis_client = context.redis_client
         config = context.config
+
         if not redis_client:
             return {"error": "Redis connection is not available."}
 
         logger.info(
-            f"Starting scan for directories: {config.pcap.root_directory} with exclusions: {exclude_files}"
+            "Starting PARALLEL scan for: %s (max_concurrent=%d, exclusions=%s)",
+            config.pcap.root_directory,
+            MAX_PARALLEL_SCANS,
+            exclude_files,
         )
-        files_indexed = 0
 
-        found_matching_folder = False
-
-        try:
+        try: 
             check_cancellation(self.scan_cancel_event)
+
             if not await asyncio.to_thread(os.path.isdir, config.pcap.root_directory):
                 logger.warning(f"Directory '{config.pcap.root_directory}' does not exist. Skipping.")
                 return { "status": "warning", "message": f"Directory '{config.pcap.root_directory}' does not exist.", "indexed_files": 0 }
-        
-            for root, dirs, files in await asyncio.to_thread(os.walk, config.pcap.root_directory):
-                check_cancellation(self.scan_cancel_event)
+            
+            # Collect all file paths
+            all_files, found_matching_folder = await self.collect_files(
+                root_directory=config.pcap.root_directory,
+                exclude_files=exclude_files,
+                allowed_extensions=tuple(config.pcap.allowed_file_extensions),
+                target_folder=target_folder,
+            )
 
-                if target_folder:
-                    if os.path.basename(root) != target_folder:
-                        continue
-                    found_matching_folder = True
+            if target_folder and not found_matching_folder:
+                logger.warning(f"No folder named '{target_folder}' found under {config.pcap.root_directory}.")
+                return { "status": "warning", "message": f"No folder named '{target_folder}' found.", "indexed_files": 0 }
 
-                for filename in files:
-                    check_cancellation(self.scan_cancel_event)
+            logger.info(f"Collected {len(all_files)} files to scan after applying exclusions.")
 
-                    if filename in exclude_files or not filename.endswith(
-                        tuple(config.pcap.allowed_file_extensions)
-                    ):
-                        continue
+            # Prepare shared state
+            semaphore = asyncio.Semaphore(MAX_PARALLEL_SCANS)
+            seen_hashes_lock = asyncio.Lock() # protect seen_hashes
+            seen_hashes : Set[str] = set()
+            counter_lock = asyncio.Lock() # protect files_indexed
+            files_indexed_container : List[int] = [0]
 
-                    file_path = os.path.join(root, filename)
+            # Create all tasks and run them concurrently
+            tasks = [
+                self.process_one_file(
+                    file_path,
+                    semaphore=semaphore,
+                    seen_hashes_lock=seen_hashes_lock,
+                    seen_hashes=seen_hashes,
+                    counter_lock=counter_lock,
+                    files_indexed_container=files_indexed_container,
+                    redis_client=redis_client,
+                    config=config,
+                    context=context,
+                )
+                for file_path in all_files
+            ]
 
-                    file_size = await asyncio.to_thread(os.path.getsize, file_path)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                    file_hash = await calculate_sha256(file_path)
-                    if file_hash in seen_hashes:
-                        logger.info(
-                            f"Skipping {file_path} (duplicate hash already processed in this scan)"
-                        )
-                        continue
-                    seen_hashes.add(file_hash)
+            # Check if cancelled
+            if self.scan_cancel_event.is_set():
+                logger.info(f"Scan cancelled. Indexed {files_indexed_container[0]} files before cancellation.")
+                return {"status": "cancelled", "indexed_files": files_indexed_container[0]}
 
-                    pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
-                    base_scan_mode = config.pcap.scan_mode
+            # Log any unhandled exceptions from individual file tasks
+            for i, result in enumerate(results):
+                if isinstance(result, asyncio.CancelledError):
+                    pass
+                elif isinstance(result, Exception):
+                    logger.error(f"Error processing file {all_files[i]}: {result}")
+            
+            logger.info("Parallel scan completed successfully. Indexed %d / %d files.", files_indexed_container[0], len(all_files))
 
-                    qs = config.pcap.quick_scan
-                    if isinstance(qs.min_file_size, int):
-                        quick_min_size_bytes = qs.min_file_size
-                    else:
-                        quick_min_size_bytes = parse_size_bytes(str(qs.min_file_size), default=0)
-
-                    current_scan_mode, current_pebc, current_config_version = get_effective_scan_mode(
-                        file_size,
-                        base_scan_mode,
-                        quick_scan_pebc=qs.pebc,
-                        quick_scan_min_file_size_bytes=quick_min_size_bytes,
-                        quick_scan_config_version=qs.config_version,
-                    )
-
-                    should_scan_now = await self.should_process_file(
-                        redis_client=redis_client,
-                        pcap_key=pcap_key,
-                        file_path=file_path,
-                        current_scan_mode=current_scan_mode,
-                        current_pebc=current_pebc,
-                        current_config_version=current_config_version,
-                    )
-                    if not should_scan_now:
-                        continue
-
-                    quick_threshold_bytes: Optional[int] = None
-                    if current_scan_mode == ScanMode.QUICK and current_pebc is not None:
-                        quick_threshold_bytes = int(file_size * current_pebc)
-
-                    logger.info(
-                        "Processing file: %s (scan_mode: %s)",
-                        file_path,
-                        current_scan_mode.value,
-                    )
-                    protocol_result = await self.get_protocols_from_pcap(
-                        file_path,
-                        excluded_protocols=config.pcap.excluded_protocols,
-                        scan_mode=current_scan_mode,
-                        quick_threshold_bytes=quick_threshold_bytes,
-                    )
-
-                    if protocol_result is not None:
-                        protocol_data, packets_scanned = protocol_result
-                        if not protocol_data:
-                            logger.warning(
-                                f"No protocols found in {filename}. Skipping from index."
-                            )
-                            continue
-
-                        protocol_percentages = calculate_protocol_percentages(
-                            protocol_data,
-                            packets_scanned,
-                        )
-
-                        file_hash = await calculate_sha256(file_path)
-                        pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
-
-                        protocols = sorted(list(protocol_data.keys()))
-                        download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
-                        total_packets = await get_total_packets_from_pcap(file_path)
-                        if total_packets is None:
-                            logger.warning(
-                                f"capinfos failed for {file_path}; continuing without total_packets"
-                            )
-                            total_packets = 0
-                        filename_norm = filename.lower()
-                        path_norm = file_path.lower()
-
-                        current_time = time.time()
-
-                        pipe = redis_client.pipeline()
-
-                        pipe.hset(
-                            pcap_key,
-                            mapping={
-                                "filename": filename,
-                                "filename_sort": filename_norm,
-                                "source_directory": os.path.dirname(file_path),
-                                "path": file_path,
-                                "path_sort": path_norm,
-                                "size_bytes": file_size,
-                                "download_url": download_url,
-                                "protocols": ",".join(protocols),
-                                "total_packets": total_packets,
-                                "protocol_counts": json.dumps(protocol_data),
-                                "protocol_percentages": json.dumps(
-                                    protocol_percentages
-                                ),
-                                "packets_scanned": packets_scanned,
-                                "last_modified": await asyncio.to_thread(
-                                    os.path.getmtime, file_path
-                                ),
-                                "last_scanned": current_time,
-                                "scan_mode": current_scan_mode.value,
-                                "pebc": "" if current_pebc is None else current_pebc,
-                                "config_version": current_config_version,
-                            },
-                        )
-
-                        autocomplete_payload = {proto: 0 for proto in protocols}
-                        if autocomplete_payload:
-                            pipe.zadd(AUTOCOMPLETE_KEY, autocomplete_payload)
-
-                        for proto in protocols:
-                            index_key = f"{PROTOCOCOL_INDEX_PREFIX}:{proto.lower()}"
-                            pipe.sadd(index_key, file_hash)
-                        
-                        # ---- LEXICOGRAPHICAL INDEXES ----
-                        pipe.zadd(LEX_INDEX_FILENAME, {filename_norm: 0}, nx=True)
-                        pipe.zadd(LEX_INDEX_PATH, {path_norm: 0}, nx=True)
-
-                        # ---- SORT INDEXES ----
-                        # Numeric sort (true score)
-                        pipe.zadd(SORT_INDEX_SIZE, {file_hash: file_size})
-
-                        pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: total_packets or 0})
-
-                        pipe.zadd(SORT_INDEX_FILENAME, {file_hash: 0}) # placeholder
-                        pipe.zadd(SORT_INDEX_PATH, {file_hash: 0})
-
-                        await asyncio.to_thread(pipe.execute)
-
-                        logger.info(
-                            f"Indexed file {filename} (hash: {file_hash}) with protocols: {', '.join(protocols)}"
-                        )
-                        files_indexed += 1
-                    else:
-                        logger.warning(
-                            f"Skipping file {filename} from index due to processing error."
-                        )
-                
-                if target_folder and not found_matching_folder:
-                    logger.warning(
-                        f"No folder named '{target_folder}' found under {config.pcap.root_directory}."
-                    )
-                    return {
-                        "status": "warning",
-                        "message": f"No folder named '{target_folder}' found.",
-                        "indexed_files": 0,
-                    }
-
-            logger.info(f"Indexing successful. Processed {files_indexed} files.")
-            return {"status": "success", "indexed_files": files_indexed}
+            return {"status": "success", "indexed_files": files_indexed_container[0]}
 
         except asyncio.CancelledError:
-            logger.info(
-                f"Scan cancelled. Indexed {files_indexed} files before cancellation."
-            )
-            return {"status": "cancelled", "indexed_files": files_indexed}
+            logger.info(f"Scan cancelled")
+            return {"status": "cancelled", "indexed_files": 0}
 
     @with_app_context
     def scan_wrapper(self, exclude_files=None, *, context: AppContext = None):
@@ -705,10 +776,10 @@ class ScanService:
             )
             return {"processed": 0, "backfilled": 0, "total": 0}
 
-        filename_map: dict[str, list[str]] = {}
-        path_map: dict[str, list[str]] = {}
-        size_map: dict[str, int] = {}
-        packet_map: dict[str, int] = {}
+        filename_map: Dict[str, List[str]] = {}
+        path_map: Dict[str, List[str]] = {}
+        size_map: Dict[str, int] = {}
+        packet_map: Dict[str, int] = {}
 
         processed = 0
         backfilled = 0
@@ -1277,10 +1348,16 @@ async def rebuild_lex_sort_indexes(*, context: AppContext = None):
 
     pipe.execute()
 
-    # swap in new indexes atomically
     pipe = redis.pipeline()
-    pipe.rename(filename_new, SORT_INDEX_FILENAME)
-    pipe.rename(path_new, SORT_INDEX_PATH)
+    if await asyncio.to_thread(redis.exists, filename_new):
+        pipe.rename(filename_new, SORT_INDEX_FILENAME)
+    else:
+        pipe.delete(SORT_INDEX_FILENAME)
+
+    if await asyncio.to_thread(redis.exists, path_new):
+        pipe.rename(path_new, SORT_INDEX_PATH)
+    else:
+        pipe.delete(SORT_INDEX_PATH)
     pipe.execute()
 
     logger.info("Lexicographic sort indexes rebuilt successfully.")

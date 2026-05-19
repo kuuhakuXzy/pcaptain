@@ -6,9 +6,7 @@ redis:
 pcap:
   root_directory: /pcaps
   # Replace with root directory for processed pcap files path when return to client
-  prefix_str: /home/kendrick/Desktop/main_pcap/pcaps
-  excluded_protocols:
-    - json
+  prefix_str: ./pcaps
   allowed_file_extensions:
     - .pcap
     - .pcapng

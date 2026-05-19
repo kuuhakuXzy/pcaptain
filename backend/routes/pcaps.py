@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 import os
 import asyncio
@@ -16,7 +16,12 @@ logger = get_logger(__name__)
     "/pcaps/download/{file_hash}", summary="Download a specific pcap file by hash"
 )
 async def download_pcap_by_hash(
-    file_hash: str, context: AppContext = Depends(get_app_context)
+    file_hash: str,
+    background_tasks: BackgroundTasks,
+
+    # display filter
+    filter: str | None = Query(default=None, description="Filter to apply when downloading a subset of the pcap"),
+    context: AppContext = Depends(get_app_context)
 ):
     if not context.redis_client:
         raise HTTPException(
@@ -39,8 +44,46 @@ async def download_pcap_by_hash(
     if not any(abs_path.startswith(d) for d in allowed_abs_dirs):
         raise HTTPException(status_code=403, detail="Forbidden: Access is denied.")
 
+    # No filter -> return original file
+    if not filter or not filter.strip():
+        return FileResponse(abs_path, media_type="application/vnd.tcpdump.pcap", filename=filename)
+
+    filter = filter.strip()
+
+    temp_filename = f"filtered_df_{uuid.uuid4()}.pcap"
+    temp_filepath = f"/tmp/{temp_filename}"
+
+    cmd = ["tshark", "-r", abs_path, "-Y", filter, "-w", temp_filepath]
+    logger.info(f"Starting display-filter export: {' '.join(cmd)}")
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            err = stderr.decode(errors="ignore")
+            logger.error(f"Tshark display filter failed: {err}")
+            raise HTTPException(status_code=400, detail=f"Invalid display filter: {err}")
+
+        if not os.path.exists(temp_filepath) or os.path.getsize(temp_filepath) == 0:
+            raise HTTPException(status_code=404, detail=f"No packets found matching display filter '{filter}'")
+
+    except HTTPException:
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+        raise
+    except Exception as e:
+        logger.error(f"Error executing tshark for display filter: {e}")
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+        raise HTTPException(status_code=500, detail="Internal Server Error during display filtering")
+
+    background_tasks.add_task(remove_file, temp_filepath)
+
     return FileResponse(
-        abs_path, media_type="application/vnd.tcpdump.pcap", filename=filename
+        temp_filepath, media_type="application/vnd.tcpdump.pcap", filename=filename
     )
 
 
