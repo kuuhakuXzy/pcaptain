@@ -16,29 +16,35 @@
         Promise.all([
             fetch('info-modal.html').then(r => r.text())
         ])
-        .then(([infoHtml]) => {
-            const container = document.querySelector('.container');
-            container.insertAdjacentHTML('beforeend', infoHtml);
-            document.dispatchEvent(new Event("dynamic-dom-ready"));
-        })
-        .catch(err => {
-            console.error('Failed to load dynamic fragments', err);
-        });
+            .then(([infoHtml]) => {
+                const container = document.querySelector('.container');
+                container.insertAdjacentHTML('beforeend', infoHtml);
+                document.dispatchEvent(new Event("dynamic-dom-ready"));
+            })
+            .catch(err => {
+                console.error('Failed to load dynamic fragments', err);
+            });
     </script>
 </head>
 
 <body>
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
+        <div id="timeContainer" style="display: none; margin-bottom: 10px; font-weight: bold; color: #555;">
+            <i class="fa fa-clock-o"></i> Execution Time: <span id="timer">0</span>s
+            <!-- new div to show the total time -->
+        </div>
         <div class="search-box">
-            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
+            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required
+                autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
             <button id="searchBtn">Search</button>
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
-            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn"
+                title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
             <!-- Remove because no use case -->
@@ -65,7 +71,7 @@
                     <option value="size_bytes">Size</option>
                     <option value="protocol_packet_count">Packet Count</option>
                 </select>
-                
+
                 <select id="sortOrder" class="control-select">
                     <option value="false">Ascending</option>
                     <option value="true">Descending</option>
@@ -95,11 +101,12 @@
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
-                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i>
+                        </th>
                         <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
-                        
+
                     </tr>
                 </thead>
                 <tbody id="resultBody">
