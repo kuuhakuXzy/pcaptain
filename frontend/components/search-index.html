@@ -41,6 +41,9 @@
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
+            <button id="opsBtn" onclick="location.href='/ops'" class="dashboard-btn" title="Ops: health, duplicates, merge">
+                <i class="fa fa-heartbeat"></i>
+            </button>
             <!-- Remove because no use case -->
             <!-- <button id="configBtn" class="config-btn" title="Settings">
                 <i class="fa fa-cog"></i>
@@ -55,6 +58,80 @@
 
         <!-- Status signal -->
         <div class="status-signal"></div>
+        <div id="newIpBanner" class="new-ip-banner hidden" role="status"></div>
+
+        <section class="ip-investigator" aria-labelledby="investigatorTitle">
+            <div class="ip-investigator-header">
+                <h2 id="investigatorTitle"><i class="fa fa-crosshairs"></i> IP investigator</h2>
+                <p class="ip-investigator-desc">Have an IP from logs or a firewall alert? Find which indexed PCAPs contain that traffic, then copy paths or open in Wireshark.</p>
+            </div>
+            <div class="ip-investigator-row">
+                <input id="investigatorIp" type="text" placeholder="IP to investigate, e.g. 10.0.0.5" autocomplete="off" />
+                <input id="investigatorPort" type="number" min="1" max="65535" placeholder="Port (optional)" />
+                <button type="button" id="investigatorSearchBtn" class="investigator-primary-btn">Find PCAPs</button>
+            </div>
+            <div id="investigatorSummary" class="investigator-summary hidden"></div>
+            <div id="investigatorActions" class="investigator-actions hidden">
+                <button type="button" id="investigatorCopyPaths" class="secondary-btn">
+                    <i class="fa fa-copy"></i> Copy all paths
+                </button>
+                <button type="button" id="investigatorExportCsv" class="secondary-btn">
+                    <i class="fa fa-download"></i> Download CSV
+                </button>
+                <button type="button" id="investigatorWiresharkHint" class="secondary-btn" title="Copy Wireshark command for the first file on this page (Windows)">
+                    <i class="fa fa-external-link"></i> Wireshark command
+                </button>
+                <button type="button" id="investigatorWiresharkBatch" class="secondary-btn" title="Download script to open multiple files (.bat / .sh)">
+                    <i class="fa fa-files-o"></i> Batch Wireshark
+                </button>
+            </div>
+        </section>
+
+        <div class="catalog-toolbar">
+            <button type="button" id="toggleAdvancedBtn" class="secondary-btn" title="Protocol, IP, port, path filters">
+                <i class="fa fa-filter"></i> Advanced filters
+            </button>
+            <button type="button" id="browseAllBtn" class="secondary-btn" title="List all indexed files">
+                <i class="fa fa-list"></i> Browse all
+            </button>
+            <button type="button" id="catalogToolsBtn" class="secondary-btn" title="Catalog tools">
+                <i class="fa fa-wrench"></i> Tools
+            </button>
+        </div>
+
+        <div id="advancedFiltersPanel" class="advanced-filters hidden">
+            <div class="advanced-filters-grid">
+                <label>
+                    <span>IP address</span>
+                    <input id="filterIp" type="text" placeholder="e.g. 192.168.1.10" autocomplete="off" />
+                </label>
+                <label>
+                    <span>Subnet (CIDR)</span>
+                    <input id="filterSubnet" type="text" placeholder="e.g. 10.0.0.0/24" autocomplete="off" />
+                </label>
+                <label>
+                    <span>Port</span>
+                    <input id="filterPort" type="number" min="1" max="65535" placeholder="e.g. 443" />
+                </label>
+                <label>
+                    <span>Filename contains</span>
+                    <input id="filterFilename" type="text" placeholder="substring in filename" autocomplete="off" />
+                </label>
+                <label>
+                    <span>Path prefix</span>
+                    <input id="filterPathPrefix" type="text" placeholder="folder path prefix" autocomplete="off" />
+                </label>
+                <label>
+                    <span>Min size (MB)</span>
+                    <input id="filterSizeMin" type="number" min="0" step="0.1" placeholder="0" />
+                </label>
+                <label>
+                    <span>Max size (MB)</span>
+                    <input id="filterSizeMax" type="number" min="0" step="0.1" placeholder="unlimited" />
+                </label>
+            </div>
+            <p class="advanced-hint">Protocol box supports shorthand: <code>sip !tcp</code>. IP/port use the Network Catalog index (run Scan or Backfill in Tools).</p>
+        </div>
 
         <!-- Control setting for sorting and pagination -->
         <div class="controls-container">
@@ -64,6 +141,8 @@
                     <option value="filename">Name</option>
                     <option value="size_bytes">Size</option>
                     <option value="protocol_packet_count">Packet Count</option>
+                    <option value="capture_start">Capture start</option>
+                    <option value="path">Path</option>
                 </select>
                 
                 <select id="sortOrder" class="control-select">
@@ -114,13 +193,49 @@
 
         <div id="scanModal" class="modal hidden">
             <div class="modal-content">
-                <h2>Select an option</h2>
+                <h2>Scan PCAPs</h2>
+                <p class="scan-modal-hint">Scan the entire PCAP root, or choose one immediate subfolder (folder name on disk).</p>
+                <label class="scan-folder-label">
+                    <span>Subfolder (optional)</span>
+                    <select id="scanFolderSelect">
+                        <option value="">— Entire tree —</option>
+                    </select>
+                </label>
                 <div class="button-group">
-                    <button id="scanAllBtn" class="action-btn">All</button>
-                    <!-- <button id="chooseDirBtn" class="action-btn">Choose Directory</button> -->
+                    <button id="scanAllBtn" class="action-btn">Start scan</button>
                     <input type="file" id="directoryPicker" webkitdirectory multiple hidden>
                 </div>
                 <button id="closeModalBtn" class="close-btn">Close</button>
+            </div>
+        </div>
+
+        <div id="catalogToolsModal" class="modal hidden">
+            <div class="modal-content catalog-tools-content">
+                <h2>Network Catalog tools</h2>
+                <div class="tools-section">
+                    <h3>System</h3>
+                    <button type="button" id="healthReadyBtn" class="action-btn">Check readiness</button>
+                    <pre id="healthReadyOutput" class="tools-output hidden"></pre>
+                </div>
+                <div class="tools-section">
+                    <h3>Indexes</h3>
+                    <button type="button" id="backfillEndpointsBtn" class="action-btn">Backfill IP/port &amp; capture times</button>
+                    <button type="button" id="exportIndexBtn" class="action-btn">Export catalog JSON</button>
+                    <label class="import-label">
+                        Import catalog JSON
+                        <input type="file" id="importIndexFile" accept="application/json,.json" hidden />
+                    </label>
+                    <p id="toolsStatusLine" class="tools-status"></p>
+                </div>
+                <div class="tools-section">
+                    <h3>Webhooks</h3>
+                    <div id="webhooksList" class="webhooks-list"></div>
+                    <div class="webhook-form">
+                        <input id="webhookUrl" type="url" placeholder="https://example.com/hook" />
+                        <button type="button" id="addWebhookBtn" class="action-btn">Add webhook</button>
+                    </div>
+                </div>
+                <button type="button" id="closeCatalogToolsBtn" class="close-btn">Close</button>
             </div>
         </div>
 
@@ -129,7 +244,9 @@
     <script src="config.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
+    <script type="module" src="catalog-tools.js"></script>
     <script type="module" src="search-script.js"></script>
+    <script type="module" src="ip-investigator.js"></script>
 </body>
 
 </html>
