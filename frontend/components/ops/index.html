@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="ops-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>PCAP Ops</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+    <div class="ops-container">
+        <header class="ops-header">
+            <h1><i class="fa fa-heartbeat"></i> PCAP Ops</h1>
+            <nav>
+                <a href="/" class="nav-link"><i class="fa fa-search"></i> Search</a>
+                <a href="/dashboard" class="nav-link"><i class="fa fa-bar-chart"></i> Dashboard</a>
+                <button type="button" id="opsRefreshBtn" class="primary-btn"><i class="fa fa-refresh"></i> Refresh</button>
+            </nav>
+        </header>
+
+        <section id="opsHealthSection" class="ops-card">
+            <h2>Health dashboard</h2>
+            <pre id="opsHealthJson" class="ops-pre">Loading…</pre>
+        </section>
+
+        <div class="ops-grid">
+            <section class="ops-card">
+                <h2>Duplicates</h2>
+                <p class="ops-desc">Groups files with the same size and packet count (near-duplicates) or same filename and size (exact duplicates).</p>
+                <button type="button" id="opsDuplicatesBtn" class="primary-btn">Load report</button>
+                <pre id="opsDuplicatesOut" class="ops-pre hidden"></pre>
+            </section>
+
+            <section class="ops-card">
+                <h2>Unindexed / errors</h2>
+                <p class="ops-desc">Compare disk to Redis: not indexed, stale index entries, recent scan failures.</p>
+                <button type="button" id="opsOrphansBtn" class="primary-btn">Run audit</button>
+                <pre id="opsOrphansOut" class="ops-pre hidden"></pre>
+            </section>
+
+            <section class="ops-card">
+                <h2>New IPs (after scan)</h2>
+                <p class="ops-desc">Compared to the saved baseline — updated when each scan completes.</p>
+                <div class="ops-btn-row">
+                    <button type="button" id="opsNewIpsBtn" class="primary-btn">View new IPs</button>
+                    <button type="button" id="opsResetIpsBtn" class="secondary-btn">Reset baseline</button>
+                    <button type="button" id="opsSnapshotIpsBtn" class="secondary-btn">Run snapshot</button>
+                </div>
+                <pre id="opsNewIpsOut" class="ops-pre hidden"></pre>
+            </section>
+
+            <section class="ops-card">
+                <h2>Merge PCAP</h2>
+                <p class="ops-desc">Paste file hashes from Search (download URL) or the API — up to 20 files.</p>
+                <textarea id="opsMergeHashes" rows="4" placeholder="hash1&#10;hash2&#10;hash3"></textarea>
+                <button type="button" id="opsMergeBtn" class="primary-btn">Merge &amp; download</button>
+                <p id="opsMergeStatus" class="ops-status"></p>
+            </section>
+
+            <section class="ops-card">
+                <h2>Scan by folder</h2>
+                <p class="ops-desc">Index PCAPs in one immediate subfolder under the PCAP root.</p>
+                <select id="opsFolderSelect">
+                    <option value="">— Select folder —</option>
+                </select>
+                <button type="button" id="opsFolderScanBtn" class="primary-btn">Start scan</button>
+                <p id="opsFolderStatus" class="ops-status"></p>
+            </section>
+
+            <section class="ops-card">
+                <h2>Batch Wireshark</h2>
+                <p class="ops-desc">Paste one full PCAP path per line, then download a .bat (Windows) or .sh (Linux) launcher script.</p>
+                <textarea id="opsWirePaths" rows="6" placeholder="/data/pcaps/foo/a.pcap"></textarea>
+                <div class="ops-btn-row">
+                    <button type="button" id="opsWireBatBtn" class="secondary-btn">Download .bat</button>
+                    <button type="button" id="opsWireShBtn" class="secondary-btn">Download .sh</button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script type="module" src="../constant.js"></script>
+    <script type="module" src="ops-script.js"></script>
+</body>
+
+</html>
