@@ -44,12 +44,19 @@ class LogConfig(BaseModel):
     level: str = "INFO"
 
 
+class CatalogConfig(BaseModel):
+    endpoint_index_enabled: bool = True
+    endpoint_max_packets: int = 10000
+    stats_cache_ttl_seconds: int = 300
+
+
 class AppConfig(BaseModel):
     port: int = 8080
     public_url: str = "http://localhost:8080"
     redis: RedisConfig = Field(default_factory=RedisConfig)
     pcap: PcapConfig = Field(default_factory=PcapConfig)
     log: LogConfig = Field(default_factory=LogConfig)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
 
 
 def load_config(config_path: str = "/app/config/config.yaml") -> AppConfig:
