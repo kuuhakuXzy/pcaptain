@@ -118,7 +118,7 @@ def _parse_float(value: Optional[str]) -> Optional[float]:
         return float(normalized)
     except ValueError:
         return None
-
+    
 
 def _parse_int(value: Any) -> Optional[int]:
     normalized = _normalize_scan_param(value)
@@ -131,7 +131,6 @@ def _parse_int(value: Any) -> Optional[int]:
             return int(float(normalized))
         except ValueError:
             return None
-
 
 def should_rescan_file(
     *,

@@ -39,6 +39,7 @@ setup_logging(config.log.level)
 logger = get_logger(__name__)
 context = init_app_context(config)
 
+
 # SCAN SCHEDULER
 async def scheduled_scan_loop():
     """Runs in the background and triggers a scan every X seconds."""
@@ -116,6 +117,7 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(asyncio.CancelledError):
             await scan_task
 
+##a
 app = FastAPI(
     title="Pcap Catalog Service",
     description="A service to index and search pcap files by protocol using a Redis-native inverted index.",

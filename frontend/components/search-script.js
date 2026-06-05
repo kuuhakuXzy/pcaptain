@@ -133,7 +133,7 @@ function startScanStatusPolling() {
                 fetchFiles();
                 serverHealthCheck();
                 refreshNewIpBanner();
-            } 
+            }
             else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                 disappearScanLoadingSpinner();
                 clearInterval(scanStatusTimer);
