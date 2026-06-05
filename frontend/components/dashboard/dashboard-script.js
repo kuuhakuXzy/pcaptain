@@ -9,12 +9,139 @@ const lastUpdatedEl = document.getElementById('lastUpdated');
 let charts = {};
 let pollInterval = null;
 
+function formatBytes(bytes) {
+    bytes = parseInt(bytes, 10) || 0;
+    if (!bytes) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const k = 1024;
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${units[i]}`;
+}
+
+function renderCatalogDirectoryTable(directories) {
+    const container = document.getElementById("catalogDirectoryTable");
+    if (!container) return;
+    container.innerHTML = "";
+    const entries = Object.entries(directories || {}).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+        container.innerHTML = '<div class="table-row"><span class="table-cell-name">No data</span></div>';
+        return;
+    }
+    entries.slice(0, 15).forEach(([name, count]) => {
+        const row = document.createElement("div");
+        row.className = "table-row";
+        row.innerHTML = `
+            <span class="table-cell-name">${name}</span>
+            <span class="table-cell-count">${count}</span>
+        `;
+        container.appendChild(row);
+    });
+}
+
+function renderCooccurrenceTable(data) {
+    const container = document.getElementById("cooccurrenceResults");
+    if (!container) return;
+    container.innerHTML = "";
+    const related = data?.co_occurring || data?.related || data;
+    if (!related || typeof related !== "object") {
+        container.innerHTML = '<div class="table-row"><span class="table-cell-name">No results</span></div>';
+        return;
+    }
+    const entries = Object.entries(related).sort((a, b) => b[1] - a[1]).slice(0, 20);
+    entries.forEach(([proto, count]) => {
+        const row = document.createElement("div");
+        row.className = "table-row";
+        row.innerHTML = `
+            <span class="table-cell-name">${proto}</span>
+            <span class="table-cell-count">${count}</span>
+        `;
+        container.appendChild(row);
+    });
+}
+
+async function loadCatalogStats(refresh = false) {
+    try {
+        const overviewRes = await axios.get(`${SERVER}${API_PATH.STATS_OVERVIEW_PATH}`, {
+            params: { refresh }
+        });
+        const overview = overviewRes.data || {};
+        const totalBytesEl = document.getElementById("catalogTotalBytes");
+        const protoCountEl = document.getElementById("catalogProtocolCount");
+        if (totalBytesEl) totalBytesEl.textContent = formatBytes(overview.total_bytes);
+        if (protoCountEl) {
+            protoCountEl.textContent = `${overview.protocol_count ?? 0} protocols indexed`;
+        }
+
+        const protoRes = await axios.get(`${SERVER}${API_PATH.STATS_PROTOCOLS_PATH}`, {
+            params: { top: 12, refresh }
+        });
+        const protocols = protoRes.data?.protocols || {};
+        if (charts.catalogProtocolsChart) {
+            charts.catalogProtocolsChart.destroy();
+        }
+        const labels = Object.keys(protocols);
+        const values = labels.map((k) => protocols[k]);
+        const ctx = document.getElementById("catalogProtocolsChart");
+        if (ctx && labels.length) {
+            charts.catalogProtocolsChart = new Chart(ctx.getContext("2d"), {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [{
+                        label: "Files",
+                        data: values,
+                        backgroundColor: "rgba(16, 185, 129, 0.6)",
+                        borderColor: "rgba(5, 150, 105, 1)",
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: "y",
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        }
+
+        const dirRes = await axios.get(`${SERVER}${API_PATH.STATS_DIRECTORIES_PATH}`);
+        renderCatalogDirectoryTable(dirRes.data?.directories || overview.directory_distribution);
+    } catch (err) {
+        console.error("Catalog stats failed:", err);
+    }
+}
+
+async function loadCooccurrence() {
+    const input = document.getElementById("cooccurrenceProtocol");
+    const protocol = input?.value?.trim();
+    if (!protocol) return;
+    try {
+        const res = await axios.get(`${SERVER}${API_PATH.STATS_CO_OCCURRENCE_PATH}`, {
+            params: { protocol, limit: 20 }
+        });
+        renderCooccurrenceTable(res.data);
+    } catch (err) {
+        console.error("Co-occurrence failed:", err);
+        renderCooccurrenceTable(null);
+    }
+}
+
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
+    loadCatalogStats();
     
     refreshBtn.addEventListener('click', () => {
         loadDashboardData(true);
+        loadCatalogStats(true);
+    });
+
+    document.getElementById("refreshCatalogBtn")?.addEventListener("click", () => {
+        loadCatalogStats(true);
+    });
+    document.getElementById("cooccurrenceBtn")?.addEventListener("click", loadCooccurrence);
+    document.getElementById("cooccurrenceProtocol")?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") loadCooccurrence();
     });
 });
 

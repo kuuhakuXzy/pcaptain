@@ -18,6 +18,9 @@ logger = get_logger(__name__)
 async def reindex_pcaps(
     request: Request,
     exclude: Optional[List[str]] = Query(None),
+    folder: Optional[str] = Query(
+        None, description="Scan only this immediate subfolder under PCAP root"
+    ),
     context: AppContext = Depends(get_app_context),
 ):
 
@@ -29,14 +32,17 @@ async def reindex_pcaps(
         )
     scan_service.scan_cancel_event.clear()
 
+    target = folder.strip() if folder else None
+
     loop = asyncio.get_event_loop()
     loop.run_in_executor(
         context.thread_executor,
         lambda: scan_service.scan_wrapper(
-            exclude_files=exclude
+            exclude_files=exclude,
+            target_folder=target,
         ),
     )
-    return JSONResponse(content={"status": "started"})
+    return JSONResponse(content={"status": "started", "folder": target})
 
 
 @router.get("/scan-status")

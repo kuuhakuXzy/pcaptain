@@ -25,6 +25,14 @@ from routes.protocols import router as protocols_router
 from routes.pcaps import router as pcaps_router
 from routes.search import router as search_router
 from routes.dashboard import router as dashboard_router
+from routes.catalog_query import router as catalog_query_router
+from routes.catalog_stats import router as catalog_stats_router
+from routes.catalog_endpoints import router as catalog_endpoints_router
+from routes.catalog_health import router as catalog_health_router
+from routes.catalog_index import router as catalog_index_router
+from routes.catalog_webhooks import router as catalog_webhooks_router
+from routes.catalog_backfill import router as catalog_backfill_router
+from routes.catalog_ops import router as catalog_ops_router
 
 config = load_config()
 setup_logging(config.log.level)
@@ -121,6 +129,14 @@ app.include_router(protocols_router)
 app.include_router(pcaps_router)
 app.include_router(search_router)
 app.include_router(dashboard_router)
+app.include_router(catalog_query_router)
+app.include_router(catalog_stats_router)
+app.include_router(catalog_endpoints_router)
+app.include_router(catalog_health_router)
+app.include_router(catalog_index_router)
+app.include_router(catalog_webhooks_router)
+app.include_router(catalog_backfill_router)
+app.include_router(catalog_ops_router)
 
 app.add_middleware(
     CORSMiddleware,
