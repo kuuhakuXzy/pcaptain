@@ -4,7 +4,7 @@ redis:
   host: redis
   port: 6380
 pcap:
-  root_directory: /pcaps
+  root_directory: /pcaps/blahblah
   # Replace with root directory for processed pcap files path when return to client
   prefix_str: ./pcaps
   allowed_file_extensions:
