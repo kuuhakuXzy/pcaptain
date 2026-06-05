@@ -15,6 +15,14 @@ from redis import Redis
 from .logger import get_logger
 from .context import AppContext, with_app_context
 from .config import ScanMode
+from .capture_info import get_capture_time_range_sync
+from .endpoint_extract import extract_endpoints_sync
+from .endpoint_index import (
+    add_endpoint_indexes,
+    endpoints_summary_json,
+    remove_endpoint_indexes,
+)
+from .catalog_constants import SORT_INDEX_CAPTURE_START
 
 logger = get_logger(__name__)
 
@@ -467,6 +475,7 @@ class ScanService:
 
             if protocol_result is None:
                 logger.warning(f"Skipping file {filename} from index due to processing error.")
+                await self._record_scan_failure(redis_client, file_path, "protocol_scan_failed")
                 return
             
             protocol_data, packets_scanned = protocol_result
@@ -494,31 +503,58 @@ class ScanService:
             path_norm = file_path.lower()
             current_time = time.time()
 
+            stored_before_index = await asyncio.to_thread(
+                redis_client.hgetall, pcap_key
+            )
+            remove_endpoint_indexes(redis_client, file_hash, stored_before_index)
+
+            catalog_cfg = config.catalog
+            ips: Set[str] = set()
+            ports: Set[str] = set()
+            if catalog_cfg.endpoint_index_enabled:
+                extracted = await asyncio.to_thread(
+                    extract_endpoints_sync,
+                    file_path,
+                    max_packets=catalog_cfg.endpoint_max_packets,
+                )
+                ips = extracted.get("ips", set())
+                ports = extracted.get("ports", set())
+
+            capture_start, capture_end = await asyncio.to_thread(
+                get_capture_time_range_sync, file_path
+            )
+
+            file_mapping = {
+                "filename": filename,
+                "filename_sort": filename_norm,
+                "source_directory": os.path.dirname(file_path),
+                "path": file_path,
+                "path_sort": path_norm,
+                "size_bytes": file_size,
+                "download_url": download_url,
+                "protocols": ",".join(protocols),
+                "total_packets": total_packets,
+                "protocol_counts": json.dumps(protocol_data),
+                "protocol_percentages": json.dumps(protocol_percentages),
+                "packets_scanned": packets_scanned,
+                "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
+                "last_scanned": current_time,
+                "scan_mode": current_scan_mode.value,
+                "pebc": "" if current_pebc is None else current_pebc,
+                "config_version": current_config_version,
+                "indexed_ips": ",".join(sorted(ips)),
+                "indexed_ports": ",".join(sorted(ports)),
+                "endpoints_summary": endpoints_summary_json(ips, ports),
+            }
+            if capture_start is not None:
+                file_mapping["capture_start"] = capture_start
+            if capture_end is not None:
+                file_mapping["capture_end"] = capture_end
+
             # Write to Redis
             pipe = redis_client.pipeline()
 
-            pipe.hset(
-                pcap_key,
-                mapping={
-                    "filename": filename,
-                    "filename_sort": filename_norm,
-                    "source_directory": os.path.dirname(file_path),
-                    "path": file_path,
-                    "path_sort": path_norm,
-                    "size_bytes": file_size,
-                    "download_url": download_url,
-                    "protocols": ",".join(protocols),
-                    "total_packets": total_packets,
-                    "protocol_counts": json.dumps(protocol_data),
-                    "protocol_percentages": json.dumps(protocol_percentages),
-                    "packets_scanned": packets_scanned,
-                    "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
-                    "last_scanned": current_time,
-                    "scan_mode": current_scan_mode.value,
-                    "pebc": "" if current_pebc is None else current_pebc,
-                    "config_version": current_config_version,
-                }
-            )
+            pipe.hset(pcap_key, mapping=file_mapping)
 
             autocomplete_payload = {proto: 0 for proto in protocols}
 
@@ -538,6 +574,10 @@ class ScanService:
             pipe.zadd(SORT_INDEX_PACKET_COUNT, {file_hash: total_packets or 0})
             pipe.zadd(SORT_INDEX_FILENAME, {file_hash: 0})
             pipe.zadd(SORT_INDEX_PATH, {file_hash: 0})
+            if capture_start is not None:
+                pipe.zadd(SORT_INDEX_CAPTURE_START, {file_hash: capture_start})
+
+            add_endpoint_indexes(redis_client, pipe, file_hash, ips, ports)
 
             await asyncio.to_thread(pipe.execute)
 
@@ -641,13 +681,28 @@ class ScanService:
             logger.info(f"Scan cancelled")
             return {"status": "cancelled", "indexed_files": 0}
 
-    @with_app_context
-    def scan_wrapper(self, exclude_files=None, *, context: AppContext = None):
+    async def _record_scan_failure(self, redis_client, file_path: str, reason: str) -> None:
+        import json
+        from .catalog_constants import SCAN_FAILURES_KEY, SCAN_FAILURES_MAX
+
+        entry = json.dumps(
+            {
+                "path": file_path,
+                "filename": os.path.basename(file_path),
+                "reason": reason,
+                "at": time.time(),
+            }
+        )
+        await asyncio.to_thread(redis_client.lpush, SCAN_FAILURES_KEY, entry)
+        await asyncio.to_thread(redis_client.ltrim, SCAN_FAILURES_KEY, 0, SCAN_FAILURES_MAX - 1)
+
+    def scan_wrapper(self, exclude_files=None, target_folder=None, *, context: AppContext = None):
         redis = context.redis_client
         if not redis:
             logger.error("Redis connection is not available. Scan aborted.")
             return
         
+        scan_event = "scan.failed"
         try:
             # dirty the lex indexes
             redis.set(REBUILD_DIRTY, 1)
@@ -658,7 +713,10 @@ class ScanService:
             logger.info("Background scan started.")
 
             result = asyncio.run(
-                self.scan_and_index(exclude_files=exclude_files)
+                self.scan_and_index(
+                    exclude_files=exclude_files,
+                    target_folder=target_folder,
+                )
             )
             self.scan_status["indexed_files"] = result.get("indexed_files", 0)
 
@@ -668,17 +726,43 @@ class ScanService:
                     f"Scan cancelled. Indexed {self.scan_status['indexed_files']} files before cancellation."
                 )
                 logger.info("Background scan cancelled.")
+                scan_event = "scan.cancelled"
             else:
                 self.scan_status["state"] = ScanState.COMPLETED
                 self.scan_status["message"] = (
                     f"Completed successfully. Indexed {self.scan_status['indexed_files']} files."
                 )
                 logger.info("Background scan completed.")
+                scan_event = "scan.completed"
         except Exception as e:
             logger.error(f"Scan failed: {e}")
             self.scan_status["state"] = ScanState.FAILED
             self.scan_status["message"] = str(e)
+            scan_event = "scan.failed"
         finally:
+            try:
+                from .webhooks import dispatch_scan_webhooks
+
+                asyncio.run(
+                    dispatch_scan_webhooks(
+                        redis,
+                        event=scan_event,
+                        indexed_files=self.scan_status.get("indexed_files", 0),
+                        status=self.scan_status["state"].value
+                        if hasattr(self.scan_status["state"], "value")
+                        else str(self.scan_status["state"]),
+                        message=self.scan_status.get("message", ""),
+                    )
+                )
+            except Exception as webhook_err:
+                logger.warning("Webhook dispatch failed: %s", webhook_err)
+            if scan_event == "scan.completed" and redis:
+                try:
+                    from .new_ip_tracker import snapshot_new_ips
+
+                    asyncio.run(snapshot_new_ips(redis))
+                except Exception as ip_err:
+                    logger.warning("New IP snapshot failed: %s", ip_err)
             if (
                 self.scan_status["state"] != ScanState.FAILED
                 and self.scan_status["state"] != ScanState.IDLE

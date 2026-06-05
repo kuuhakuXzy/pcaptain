@@ -108,7 +108,70 @@ You can also use `curl` for testing.
     curl http://localhost:8000/health
     ```
 
-### 5. Backfill search index
+### 5. Network Catalog (new)
+
+Advanced search, endpoint index, statistics, webhooks, and index backup.
+
+**Advanced query (POST JSON):**
+```bash
+curl -X POST http://localhost:7000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "protocol_query": "sip !tcp",
+    "ip": "10.0.0.5",
+    "port": 5060,
+    "path_prefix": "/pcaps",
+    "size_bytes": {"min": 1000, "max": 500000000},
+    "page": 1,
+    "limit": 10,
+    "sort_by": "size_bytes",
+    "descending": true
+  }' | jq
+```
+
+**Search by IP/port:**
+```bash
+curl "http://localhost:7000/search/endpoints?ip=10.0.0.5&port=5060" | jq
+```
+
+**Statistics:**
+```bash
+curl "http://localhost:7000/stats/overview?refresh=true" | jq
+curl "http://localhost:7000/stats/protocols?top=20" | jq
+curl "http://localhost:7000/stats/co-occurrence?protocol=sip" | jq
+curl "http://localhost:7000/stats/directories" | jq
+```
+
+**Readiness:**
+```bash
+curl http://localhost:7000/health/ready | jq
+```
+
+**Backfill endpoint/capture metadata for files indexed before this feature:**
+```bash
+curl -X POST http://localhost:7000/backfill/endpoints | jq
+```
+
+**Export / import catalog metadata:**
+```bash
+curl http://localhost:7000/index/export -o catalog-export.json
+curl -X POST http://localhost:7000/index/import \
+  -H "Content-Type: application/json" \
+  -d @catalog-export.json
+```
+
+**Webhooks (notify after scan completes):**
+```bash
+curl -X POST http://localhost:7000/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/hooks/pcaptain","events":["scan.completed"]}'
+```
+
+Configure catalog options in `backend/config/config.yaml` under `catalog:` (`endpoint_index_enabled`, `endpoint_max_packets`, `stats_cache_ttl_seconds`).
+
+---
+
+### 6. Backfill search index
 
 Trigger
 ```
