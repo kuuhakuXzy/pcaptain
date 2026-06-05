@@ -16,14 +16,22 @@
         Promise.all([
             fetch('info-modal.html').then(r => r.text())
         ])
-        .then(([infoHtml]) => {
-            const container = document.querySelector('.container');
-            container.insertAdjacentHTML('beforeend', infoHtml);
-            document.dispatchEvent(new Event("dynamic-dom-ready"));
-        })
-        .catch(err => {
-            console.error('Failed to load dynamic fragments', err);
-        });
+            .then(([infoHtml]) => {
+                const container = document.querySelector('.container');
+                container.insertAdjacentHTML('beforeend', infoHtml);
+                document.dispatchEvent(new Event("dynamic-dom-ready"));
+            })
+            .catch(err => {
+                console.error('Failed to load dynamic fragments', err);
+            });
+    </script>
+    <script>
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme) {
+            document.documentElement.setAttribute("data-theme", savedTheme);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+        }
     </script>
 </head>
 
@@ -31,14 +39,18 @@
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
         <div class="search-box">
-            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
+            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required
+                autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
             <button id="searchBtn">Search</button>
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
-            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+            <button id="themeToggle" title="Dark/Light Mode" class="page-btn"><i class="fa fa-moon-o"></i></button>
+            </button>
+            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn"
+                title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
             <!-- Remove because no use case -->
@@ -65,7 +77,7 @@
                     <option value="size_bytes">Size</option>
                     <option value="protocol_packet_count">Packet Count</option>
                 </select>
-                
+
                 <select id="sortOrder" class="control-select">
                     <option value="false">Ascending</option>
                     <option value="true">Descending</option>
@@ -95,11 +107,12 @@
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
-                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i>
+                        </th>
                         <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
-                        
+
                     </tr>
                 </thead>
                 <tbody id="resultBody">
@@ -126,6 +139,32 @@
 
     </div>
 
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const toggleBtn = document.getElementById("themeToggle");
+            if (!toggleBtn) return;
+
+            const icon = toggleBtn.querySelector("i");
+            const setIcon = (theme) => {
+                if (theme === "dark") {
+                    icon.className = "fa fa-sun-o";
+                } else {
+                    icon.className = "fa fa-moon-o";
+                }
+            };
+
+            setIcon(document.documentElement.getAttribute("data-theme"));
+
+            toggleBtn.addEventListener("click", () => {
+                const currentTheme = document.documentElement.getAttribute("data-theme");
+                const newTheme = currentTheme === "dark" ? "light" : "dark";
+
+                document.documentElement.setAttribute("data-theme", newTheme);
+                localStorage.setItem("theme", newTheme);
+                setIcon(newTheme);
+            });
+        });
+    </script>
     <script src="config.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>

@@ -25,21 +25,21 @@ let scanStatusTimer = null; // Store the interval timer
 function displaySearchLoadingSpinner() {
     const spinner = document.getElementById("spinnerSearchBtn");
     const searchBtn = document.getElementById("searchBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.remove("spinner-search-hidden");
         spinner.classList.add("spinner-search-visible");
     }
-    if(searchBtn) searchBtn.style.display = "none";
+    if (searchBtn) searchBtn.style.display = "none";
 }
 
 function disappearSearchLoadingSpinner() {
     const spinner = document.getElementById("spinnerSearchBtn");
     const searchBtn = document.getElementById("searchBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.add("spinner-search-hidden");
         spinner.classList.remove("spinner-search-visible");
     }
-    if(searchBtn) searchBtn.style.display = "inline-block";
+    if (searchBtn) searchBtn.style.display = "inline-block";
 }
 
 async function loadScanConfigTooltip() {
@@ -83,18 +83,18 @@ function startScanStatusPolling() {
             const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
             const status = apiResponse.data.state;
             if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
-                  status === SERVER_SCANNING_FILE_STATUS.IDLE
-                ) {
+                status === SERVER_SCANNING_FILE_STATUS.IDLE
+            ) {
                 disappearScanLoadingSpinner();
                 clearInterval(scanStatusTimer);
                 scanStatusTimer = null;
                 showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
-            } 
+            }
             else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
-                  disappearScanLoadingSpinner();
-                  clearInterval(scanStatusTimer);
-                  scanStatusTimer = null;
-                  showToast(TOAST_STATUS.ERROR, "Scan failed");
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+                showToast(TOAST_STATUS.ERROR, "Scan failed");
             }
         } catch (err) {
             disappearScanLoadingSpinner();
@@ -172,8 +172,8 @@ const sortBySelect = document.getElementById("sortBy");
 const sortOrderSelect = document.getElementById("sortOrder");
 const limitSelect = document.getElementById("limitSelect");
 
-if (limitSelect) limitSelect.value = "5"; 
-if (sortBySelect) sortBySelect.value = "filename";    
+if (limitSelect) limitSelect.value = "5";
+if (sortBySelect) sortBySelect.value = "filename";
 if (sortOrderSelect) sortOrderSelect.value = "false";
 
 loadScanConfigTooltip();
@@ -190,7 +190,7 @@ if (limitSelect) {
 if (sortBySelect) {
     sortBySelect.addEventListener("change", (e) => {
         currentSortBy = e.target.value;
-        currentPage = 1; 
+        currentPage = 1;
         smartFetch();
     });
 }
@@ -198,7 +198,7 @@ if (sortBySelect) {
 if (sortOrderSelect) {
     sortOrderSelect.addEventListener("change", (e) => {
         currentDescending = e.target.value === "true";
-        currentPage = 1; 
+        currentPage = 1;
         smartFetch();
     });
 }
@@ -288,11 +288,11 @@ function displayScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
     const cancelBtn = document.getElementById("cancelScanBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.remove("spinner-scan-hidden");
         spinner.classList.add("spinner-scan-visible");
     }
-    if(scanBtn) scanBtn.style.display = "none";
+    if (scanBtn) scanBtn.style.display = "none";
     if (cancelBtn) cancelBtn.disabled = false;
 }
 
@@ -300,11 +300,11 @@ function disappearScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
     const cancelBtn = document.getElementById("cancelScanBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.add("spinner-scan-hidden");
         spinner.classList.remove("spinner-scan-visible");
     }
-    if(scanBtn) scanBtn.style.display = "inline-block";
+    if (scanBtn) scanBtn.style.display = "inline-block";
     if (cancelBtn) cancelBtn.disabled = true;
 }
 
@@ -323,11 +323,11 @@ document.getElementById("cancelScanBtn").addEventListener("click", async () => {
         }
         disappearScanLoadingSpinner();
         showToast(TOAST_STATUS.INFO, "Scan cancelled");
-    } 
+    }
     catch (err) {
         showToast(TOAST_STATUS.ERROR, "Failed to cancel scan");
     }
-  });
+});
 
 
 const chooseDirBtn = document.getElementById("chooseDirBtn");
@@ -358,7 +358,7 @@ setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 // --- SCAN STATE MANAGEMENT ---
 function manageScanState() {
     const cancelBtn = document.getElementById("cancelScanBtn");
-    
+
     if (scan_state) {
         // Start interval polling if not already running
         if (!scanStatusTimer) {
@@ -366,7 +366,7 @@ function manageScanState() {
                 try {
                     const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
                     const status = apiResponse.data.state;
-                    
+
                     if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
                         status === SERVER_SCANNING_FILE_STATUS.IDLE
                     ) {
@@ -452,12 +452,12 @@ async function syncScanStateOnLoad() {
         if (res.data.state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
             displayScanLoadingSpinner();
             startScanStatusPolling();
-        } 
+        }
         else {
             disappearScanLoadingSpinner();
         }
     } catch (_) {
-          // keep default UI
+        // keep default UI
     }
 }
 
@@ -469,9 +469,9 @@ async function fetchFiles() {
 
     try {
         displaySearchLoadingSpinner();
-        
+
         const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
-        
+
         const apiResponse = await axios.get(
             SERVER + API_PATH.PCAP_SEARCHING_PATH,
             { params }
@@ -486,7 +486,7 @@ async function fetchFiles() {
 
         // Object response { total, page, data: [] }
         const responseData = apiResponse.data;
-        const files = responseData.data; 
+        const files = responseData.data;
         const totalItems = responseData.total;
 
         currentFiles = files; // Store current files for copy functionality
@@ -506,7 +506,7 @@ function updatePaginationControls(totalItems) {
     const container = document.getElementById("paginationContainer");
     if (!container) return;
 
-    container.innerHTML = ""; 
+    container.innerHTML = "";
 
     if (totalItems === 0) return;
 
@@ -621,7 +621,7 @@ function updatePaginationControls(totalItems) {
 function formatDate(timestamp) {
     if (!timestamp) return "N/A";
     const date = new window.Date(parseFloat(timestamp) * 1000);
-    return date.toLocaleString(); 
+    return date.toLocaleString();
 }
 
 // --- NAMED EVENT HANDLERS ---
@@ -680,7 +680,7 @@ async function checkScanStateOnReady() {
             }
             if (scanBtn) scanBtn.style.display = "none";
             if (cancelBtn) cancelBtn.classList.remove("hidden");
-            
+
             // Set scan_state and start interval polling
             scan_state = true;
             manageScanState();
@@ -823,7 +823,7 @@ function renderTable(files) {
 
     files.forEach((file, index) => {
         const tr = document.createElement('tr');
-        
+
         const btnId = `infoBtn-${index}`;
 
         // Updated extra info column
