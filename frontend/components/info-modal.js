@@ -36,6 +36,42 @@ export function openInfoModal(file, event) {
     
     document.getElementById("infoModified").innerText = formatDate(file.last_modified);
     document.getElementById("infoScanned").innerText = formatDate(file.last_scanned);
+
+    const captureStart = file.capture_start;
+    const captureEnd = file.capture_end;
+    const captureEl = document.getElementById("infoCaptureRange");
+    if (captureEl) {
+        if (captureStart || captureEnd) {
+            captureEl.innerText = `${formatDate(captureStart)} → ${formatDate(captureEnd)}`;
+        } else {
+            captureEl.innerText = "N/A (run Scan or Backfill in Tools)";
+        }
+    }
+
+    const endpointsEl = document.getElementById("infoEndpoints");
+    const endpointsRow = document.getElementById("infoEndpointsRow");
+    let endpointsText = "N/A";
+    const ep = file.endpoints;
+    if (ep && (Array.isArray(ep.ips) || Array.isArray(ep.ports))) {
+        const ipN = ep.ips?.length ?? 0;
+        const portN = ep.ports?.length ?? 0;
+        endpointsText = `${ipN} IP(s), ${portN} port(s)`;
+    } else if (file.endpoints_summary) {
+        try {
+            const summary = JSON.parse(file.endpoints_summary);
+            const ipN = summary.ips?.length ?? 0;
+            const portN = summary.ports?.length ?? 0;
+            endpointsText = `${ipN} IP(s), ${portN} port(s)`;
+        } catch (_) {
+            endpointsText = file.indexed_ips || file.indexed_ports
+                ? `IPs: ${file.indexed_ips || "-"}, ports: ${file.indexed_ports || "-"}`
+                : "N/A";
+        }
+    } else if (file.indexed_ips || file.indexed_ports) {
+        endpointsText = `IPs: ${file.indexed_ips || "-"}, ports: ${file.indexed_ports || "-"}`;
+    }
+    if (endpointsEl) endpointsEl.innerText = endpointsText;
+    if (endpointsRow) endpointsRow.style.display = endpointsText === "N/A" ? "none" : "";
     const scanModeValue = SCAN_MODE_TEXT[file.scan_mode] || "Full";
     const pebcValue =
         file.scan_mode === "quick" && file.pebc !== undefined && file.pebc !== null && String(file.pebc).trim() !== ""

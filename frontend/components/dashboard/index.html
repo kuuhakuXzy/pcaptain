@@ -19,6 +19,9 @@
                 <a href="/" class="nav-link">
                     <i class="fa fa-search"></i> Search
                 </a>
+                <a href="/ops" class="nav-link">
+                    <i class="fa fa-heartbeat"></i> Ops
+                </a>
                 <button id="refreshBtn" class="refresh-btn" title="Refresh Data">
                     <i class="fa fa-refresh"></i> Refresh
                 </button>
@@ -41,6 +44,43 @@
                     <div class="overview-content">
                         <div class="overview-label">Total Files</div>
                         <div class="overview-value" id="totalFiles">0</div>
+                    </div>
+                </div>
+                <div class="overview-card catalog-overview-card">
+                    <div class="overview-icon">
+                        <i class="fa fa-database"></i>
+                    </div>
+                    <div class="overview-content">
+                        <div class="overview-label">Catalog size</div>
+                        <div class="overview-value" id="catalogTotalBytes">—</div>
+                        <div class="overview-sub" id="catalogProtocolCount">— protocols</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stat-card large catalog-panel">
+                <div class="catalog-panel-header">
+                    <h2>Network Catalog</h2>
+                    <button type="button" id="refreshCatalogBtn" class="refresh-btn" title="Refresh catalog stats">
+                        <i class="fa fa-refresh"></i> Catalog
+                    </button>
+                </div>
+                <div class="catalog-panel-grid">
+                    <div>
+                        <h3>Top protocols</h3>
+                        <canvas id="catalogProtocolsChart"></canvas>
+                    </div>
+                    <div>
+                        <h3>By directory</h3>
+                        <div id="catalogDirectoryTable" class="data-table"></div>
+                    </div>
+                    <div class="catalog-cooccurrence">
+                        <h3>Co-occurrence</h3>
+                        <div class="cooccurrence-controls">
+                            <input id="cooccurrenceProtocol" type="text" placeholder="protocol e.g. http" />
+                            <button type="button" id="cooccurrenceBtn" class="refresh-btn">Load</button>
+                        </div>
+                        <div id="cooccurrenceResults" class="data-table"></div>
                     </div>
                 </div>
             </div>

@@ -18,6 +18,8 @@ let itemsPerPage = 5;
 let currentSortBy = "filename";
 let currentDescending = false;
 let currentFiles = []; // Store current page's files for copy functionality
+let lastFetchTotal = 0;
+let investigatorQuery = null; // { ip, port? } — IP investigator workflow
 let scan_state = false; // Track whether scanning is active
 let scanStatusTimer = null; // Store the interval timer
 let timerInterval = null; // Time variable that a fuction needs to operate it's logic
@@ -128,7 +130,10 @@ function startScanStatusPolling() {
                 scanStatusTimer = null;
                 stopTimer();
                 showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
-            }
+                fetchFiles();
+                serverHealthCheck();
+                refreshNewIpBanner();
+            } 
             else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                 disappearScanLoadingSpinner();
                 clearInterval(scanStatusTimer);
@@ -145,10 +150,93 @@ function startScanStatusPolling() {
     }, CHECK_SCAN_FILES_STATUS_INTERVAL);
 }
 
+function getFilterValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value.trim() : "";
+}
+
+function hasAdvancedFilters() {
+    return Boolean(
+        getFilterValue("filterIp") ||
+        getFilterValue("filterPort") ||
+        getFilterValue("filterFilename") ||
+        getFilterValue("filterPathPrefix") ||
+        getFilterValue("filterSizeMin") ||
+        getFilterValue("filterSizeMax") ||
+        getFilterValue("filterSubnet")
+    );
+}
+
+function clearAdvancedFilters() {
+    ["filterIp", "filterPort", "filterSubnet", "filterFilename", "filterPathPrefix", "filterSizeMin", "filterSizeMax"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = "";
+    });
+}
+
+function buildCatalogQueryBody() {
+    const protocolQuery = document.getElementById("searchInput").value.trim();
+    const body = {
+        protocol_query: protocolQuery,
+        page: currentPage,
+        limit: itemsPerPage,
+        sort_by: currentSortBy,
+        descending: currentDescending
+    };
+
+    const filename = getFilterValue("filterFilename");
+    if (filename) body.filename_contains = filename;
+
+    const pathPrefix = getFilterValue("filterPathPrefix");
+    if (pathPrefix) body.path_prefix = pathPrefix;
+
+    const sizeMinMb = parseFloat(getFilterValue("filterSizeMin"));
+    const sizeMaxMb = parseFloat(getFilterValue("filterSizeMax"));
+    if (!Number.isNaN(sizeMinMb) && sizeMinMb > 0) {
+        body.size_bytes = { ...(body.size_bytes || {}), min: Math.floor(sizeMinMb * 1024 * 1024) };
+    }
+    if (!Number.isNaN(sizeMaxMb) && sizeMaxMb > 0) {
+        body.size_bytes = { ...(body.size_bytes || {}), max: Math.floor(sizeMaxMb * 1024 * 1024) };
+    }
+
+    const ip = getFilterValue("filterIp");
+    if (ip) body.ip = ip;
+
+    const portRaw = getFilterValue("filterPort");
+    if (portRaw) {
+        const port = parseInt(portRaw, 10);
+        if (port >= 1 && port <= 65535) body.port = port;
+    }
+
+    return body;
+}
+
+function shouldUseSubnetSearch() {
+    if (investigatorQuery) return false;
+    return Boolean(getFilterValue("filterSubnet"));
+}
+
+function shouldUseEndpointSearchOnly() {
+    if (investigatorQuery) return true;
+    if (shouldUseSubnetSearch()) return false;
+    const protocolQuery = document.getElementById("searchInput").value.trim();
+    const ip = getFilterValue("filterIp");
+    const port = getFilterValue("filterPort");
+    return (ip || port) && !protocolQuery && !getFilterValue("filterFilename") && !getFilterValue("filterPathPrefix");
+}
+
+function clearInvestigatorQuery() {
+    investigatorQuery = null;
+}
+
+function canRunSearch() {
+    const protocolQuery = document.getElementById("searchInput").value.trim();
+    return Boolean(protocolQuery || hasAdvancedFilters());
+}
+
 // Helper function
 function smartFetch() {
-    const hasQuery = document.getElementById("searchInput").value.trim() !== "";
-    fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+    fetchFiles();
 }
 
 document.getElementById("searchBtn").addEventListener("click", () => {
@@ -158,10 +246,11 @@ document.getElementById("searchBtn").addEventListener("click", () => {
         return clearSearchAndShowAll();
     }
 
-    if (!search) {
-        return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+    if (!canRunSearch()) {
+        return showToast(TOAST_STATUS.WARNING, "Enter a protocol query or use Advanced filters");
     }
 
+    clearInvestigatorQuery();
     currentPage = 1; // Reset to page 1 on new search
     fetchFiles();
     setSearchMode(true);
@@ -188,25 +277,53 @@ function setSearchMode(on) {
 
 function clearSearchAndShowAll() {
     searchInput.value = "";
+    clearAdvancedFilters();
+    clearInvestigatorQuery();
     currentPage = 1;
 
     if (typeof hideSuggestion === "function") hideSuggestion();
 
     setSearchMode(false);
-    fetchFiles(true); // show all files without reloading
+    fetchFiles();
+}
+
+function browseAllFiles() {
+    searchInput.value = "";
+    clearAdvancedFilters();
+    clearInvestigatorQuery();
+    currentPage = 1;
+    if (typeof hideSuggestion === "function") hideSuggestion();
+    setSearchMode(false);
+    fetchFiles();
 }
 
 searchInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") {
         const search = document.getElementById("searchInput").value.trim();
-        if (!search) {
-            return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+        if (!canRunSearch()) {
+            return showToast(TOAST_STATUS.WARNING, "Enter a protocol query or use Advanced filters");
         }
+        clearInvestigatorQuery();
         currentPage = 1; // Reset to page 1 on new search
         hideSuggestion();
         fetchFiles();
         setSearchMode(true);
     }
+});
+
+document.getElementById("toggleAdvancedBtn")?.addEventListener("click", () => {
+    const panel = document.getElementById("advancedFiltersPanel");
+    if (panel) panel.classList.toggle("hidden");
+});
+
+document.getElementById("browseAllBtn")?.addEventListener("click", browseAllFiles);
+
+["filterIp", "filterPort", "filterSubnet", "filterFilename", "filterPathPrefix", "filterSizeMin", "filterSizeMax"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("change", () => {
+        currentPage = 1;
+    });
 });
 
 const sortBySelect = document.getElementById("sortBy");
@@ -315,9 +432,28 @@ function escapeRegExp(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+async function loadScanFolderOptions() {
+    const sel = document.getElementById("scanFolderSelect");
+    if (!sel) return;
+    try {
+        const res = await axios.get(SERVER + API_PATH.SCAN_FOLDERS_PATH);
+        const folders = res.data?.folders || [];
+        sel.innerHTML = '<option value="">— Entire tree —</option>';
+        for (const f of folders) {
+            const opt = document.createElement("option");
+            opt.value = f.name;
+            opt.textContent = `${f.name} (${f.pcap_count_hint}+ pcap)`;
+            sel.appendChild(opt);
+        }
+    } catch (_) {
+        /* keep default option */
+    }
+}
+
 // Scan Popup
 document.getElementById("scanBtn").addEventListener("click", () => {
     document.getElementById("scanModal").classList.remove("hidden");
+    loadScanFolderOptions();
 });
 
 document.getElementById("closeModalBtn").addEventListener("click", () => {
@@ -352,7 +488,8 @@ function disappearScanLoadingSpinner() {
 document.getElementById("scanAllBtn").addEventListener("click", async () => {
     const scanModal = document.getElementById("scanModal");
     scanModal.classList.add("hidden");
-    await scanFiles();
+    const folder = document.getElementById("scanFolderSelect")?.value?.trim() || "";
+    await scanFiles(folder || null);
 });
 
 document.getElementById("cancelScanBtn").addEventListener("click", async () => {
@@ -387,11 +524,24 @@ async function serverHealthCheck() {
     try {
         const apiResponse = await axios.get(SERVER + API_PATH.SERVER_HEALTH_CHECK_PATH);
         if (apiResponse.data.status !== "OK") {
-            statusSignal.innerHTML = `<i class="fa fa-circle"></i><span>Server Error</span>`;
+            statusSignal.innerHTML = `<i class="fa fa-circle status-bad"></i><span>Server Error</span>`;
+            return;
+        }
+        try {
+            const ready = await axios.get(SERVER + API_PATH.HEALTH_READY_PATH);
+            const indexed = ready.data?.indexed_files ?? "?";
+            const scanState = ready.data?.scan_state || "idle";
+            const label =
+                ready.data?.status === "ready"
+                    ? `Online · ${indexed} indexed · scan ${scanState}`
+                    : `Degraded · ${indexed} indexed`;
+            statusSignal.innerHTML = `<i class="fa fa-circle status-ok"></i><span>${label}</span>`;
+        } catch (_) {
+            statusSignal.innerHTML = `<i class="fa fa-circle status-ok"></i><span>Online</span>`;
         }
     } catch (err) {
         console.log("Health check failed", err);
-        statusSignal.innerHTML = `<i class="fa fa-circle"></i><span>Server Error</span>`;
+        statusSignal.innerHTML = `<i class="fa fa-circle status-bad"></i><span>Server Error</span>`;
     }
 }
 serverHealthCheck();
@@ -418,6 +568,8 @@ function manageScanState() {
                         if (cancelBtn) cancelBtn.classList.add("hidden");
                         stopTimer();
                         showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                        fetchFiles();
+                        serverHealthCheck();
                     } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                         scan_state = false;
                         manageScanState(); // This will clear the interval
@@ -445,7 +597,7 @@ function manageScanState() {
     }
 }
 
-async function scanFiles() {
+async function scanFiles(targetFolder = null) {
     displayScanLoadingSpinner();
 
     if (scanStatusTimer) {
@@ -455,7 +607,8 @@ async function scanFiles() {
 
     try {
         startTimer();
-        const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH);
+        const params = targetFolder ? { folder: targetFolder } : {};
+        const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, null, { params });
         if (!apiResponse) {
             disappearScanLoadingSpinner();
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
@@ -509,47 +662,285 @@ async function syncScanStateOnLoad() {
 }
 
 syncScanStateOnLoad();
-fetchFiles(true); // Load initial files on page load
+fetchFiles();
+refreshNewIpBanner();
 
 async function fetchFiles() {
-    const search = document.getElementById("searchInput").value.toLowerCase().trim();
-
     try {
         displaySearchLoadingSpinner();
         startTimer();
 
         const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
 
-        const apiResponse = await axios.get(
-            SERVER + API_PATH.PCAP_SEARCHING_PATH,
-            { params }
-        );
+        const apiResponse = await requestSearchPage(currentPage, itemsPerPage);
 
         disappearSearchLoadingSpinner();
         stopTimer();
 
         if (!apiResponse || !apiResponse.data) {
             showToast(TOAST_STATUS.ERROR, "Failed to get response");
-            return;
+            return { total: 0, shown: 0 };
         }
 
-        // Object response { total, page, data: [] }
         const responseData = apiResponse.data;
         const files = responseData.data;
         const totalItems = responseData.total;
+        lastFetchTotal = totalItems;
 
-        currentFiles = files; // Store current files for copy functionality
+        currentFiles = files;
 
         renderTable(files);
         updatePaginationControls(totalItems);
-
+        return { total: totalItems, shown: files.length };
     } catch (err) {
         disappearSearchLoadingSpinner();
         stopTimer();
         console.error("API error: ", err);
-        showToast(TOAST_STATUS.ERROR, "Error while searching files");
+        const detail = err.response?.data?.detail;
+        const msg = typeof detail === "string" ? detail : "Error while searching files";
+        showToast(TOAST_STATUS.ERROR, msg);
+        throw new Error(msg);
     }
 }
+
+async function requestSearchPage(page, limit) {
+    if (shouldUseSubnetSearch()) {
+        const cidr = getFilterValue("filterSubnet");
+        return axios.get(SERVER + API_PATH.SEARCH_SUBNET_PATH, {
+            params: { cidr, page, limit }
+        });
+    }
+    if (shouldUseEndpointSearchOnly()) {
+        const params = { page, limit };
+        const ip = investigatorQuery?.ip || getFilterValue("filterIp");
+        const portRaw = investigatorQuery?.port ?? getFilterValue("filterPort");
+        if (ip) params.ip = ip;
+        if (portRaw !== "" && portRaw != null) {
+            const port = typeof portRaw === "number" ? portRaw : parseInt(portRaw, 10);
+            if (!Number.isNaN(port)) params.port = port;
+        }
+        return axios.get(SERVER + API_PATH.CATALOG_ENDPOINTS_PATH, { params });
+    }
+    return axios.post(SERVER + API_PATH.CATALOG_QUERY_PATH, {
+        ...buildCatalogQueryBody(),
+        page,
+        limit
+    });
+}
+
+async function fetchAllMatchingFiles(maxTotal = 500) {
+    const all = [];
+    const pageSize = 50;
+    let page = 1;
+
+    while (all.length < maxTotal) {
+        const res = await requestSearchPage(page, pageSize);
+        const batch = res.data?.data || [];
+        const total = res.data?.total ?? 0;
+        all.push(...batch);
+        if (batch.length === 0 || all.length >= total) break;
+        page += 1;
+    }
+
+    return all.slice(0, maxTotal);
+}
+
+function escapeCsvCell(value) {
+    const text = String(value ?? "");
+    if (/[",\n\r]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+}
+
+function filesToCsv(files) {
+    const header = [
+        "filename",
+        "path",
+        "size_bytes",
+        "total_packets",
+        "capture_start",
+        "capture_end",
+        "scan_mode",
+        "indexed_ips",
+        "indexed_ports"
+    ];
+    const lines = [header.join(",")];
+    for (const f of files) {
+        lines.push(
+            [
+                escapeCsvCell(f.filename),
+                escapeCsvCell(f.path),
+                escapeCsvCell(f.size_bytes),
+                escapeCsvCell(f.total_packets),
+                escapeCsvCell(f.capture_start),
+                escapeCsvCell(f.capture_end),
+                escapeCsvCell(f.scan_mode),
+                escapeCsvCell(f.indexed_ips),
+                escapeCsvCell(f.indexed_ports)
+            ].join(",")
+        );
+    }
+    return lines.join("\n");
+}
+
+async function runIpInvestigation(ip, port) {
+    investigatorQuery = { ip, port: port ?? null };
+
+    const filterIp = document.getElementById("filterIp");
+    const filterPort = document.getElementById("filterPort");
+    if (filterIp) filterIp.value = ip;
+    if (filterPort) filterPort.value = port != null ? String(port) : "";
+
+    searchInput.value = "";
+    currentPage = 1;
+    setSearchMode(true);
+
+    return fetchFiles();
+}
+
+async function copyAllMatchingPaths() {
+    if (lastFetchTotal === 0) {
+        showToast(TOAST_STATUS.WARNING, "No results to copy");
+        return;
+    }
+    showToast(TOAST_STATUS.INFO, "Fetching paths…");
+    try {
+        const files = await fetchAllMatchingFiles(500);
+        const paths = files.map((f) => f.path).filter(Boolean).join("\n");
+        if (!paths) {
+            showToast(TOAST_STATUS.WARNING, "No paths found");
+            return;
+        }
+        await navigator.clipboard.writeText(paths);
+        showToast(TOAST_STATUS.SUCCESS, `Copied ${files.length} path(s)`);
+    } catch (err) {
+        showToast(TOAST_STATUS.ERROR, "Copy failed");
+    }
+}
+
+async function exportMatchingCsv() {
+    if (lastFetchTotal === 0) {
+        showToast(TOAST_STATUS.WARNING, "No results to export");
+        return;
+    }
+    showToast(TOAST_STATUS.INFO, "Building CSV…");
+    try {
+        const files = await fetchAllMatchingFiles(500);
+        const blob = new Blob([filesToCsv(files)], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const ipPart = investigatorQuery?.ip || getFilterValue("filterIp") || "search";
+        a.href = url;
+        a.download = `pcaptain-${ipPart}-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(TOAST_STATUS.SUCCESS, `Downloaded CSV (${files.length} row(s))`);
+    } catch (err) {
+        showToast(TOAST_STATUS.ERROR, "CSV export failed");
+    }
+}
+
+function copyWiresharkCommand() {
+    const path = currentFiles[0]?.path;
+    if (!path) {
+        showToast(TOAST_STATUS.WARNING, "No files on the current page");
+        return;
+    }
+    const escaped = path.replace(/"/g, '\\"');
+    const cmd = `wireshark "${escaped}"`;
+    navigator.clipboard.writeText(cmd).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "Copied Wireshark command (first file on this page)");
+    }).catch(() => {
+        showToast(TOAST_STATUS.ERROR, "Copy failed");
+    });
+}
+
+function downloadBlob(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function buildWiresharkBat(paths) {
+    const lines = ["@echo off", "REM PCAPtain — open captures in Wireshark"];
+    for (const p of paths) {
+        lines.push(`start "" wireshark "${p.replace(/"/g, '""')}"`);
+    }
+    return lines.join("\r\n");
+}
+
+function buildWiresharkSh(paths) {
+    const lines = ["#!/bin/sh", "# PCAPtain — open captures in Wireshark"];
+    for (const p of paths) {
+        lines.push(`wireshark "${p.replace(/"/g, '\\"')}" &`);
+    }
+    return lines.join("\n");
+}
+
+async function exportWiresharkBatch() {
+    if (lastFetchTotal === 0) {
+        showToast(TOAST_STATUS.WARNING, "No results");
+        return;
+    }
+    showToast(TOAST_STATUS.INFO, "Fetching file list…");
+    try {
+        const files = await fetchAllMatchingFiles(50);
+        const paths = files.map((f) => f.path).filter(Boolean);
+        if (!paths.length) {
+            showToast(TOAST_STATUS.WARNING, "No paths found");
+            return;
+        }
+        const isWin = navigator.platform.toLowerCase().includes("win");
+        if (isWin) {
+            downloadBlob("open-wireshark.bat", buildWiresharkBat(paths), "text/plain");
+        } else {
+            downloadBlob("open-wireshark.sh", buildWiresharkSh(paths), "text/plain");
+        }
+        showToast(TOAST_STATUS.SUCCESS, `Downloaded script for ${paths.length} file(s)`);
+    } catch (err) {
+        showToast(TOAST_STATUS.ERROR, "Failed to build script");
+    }
+}
+
+async function refreshNewIpBanner() {
+    const banner = document.getElementById("newIpBanner");
+    if (!banner) return;
+    try {
+        const res = await axios.get(SERVER + API_PATH.CATALOG_NEW_IPS_PATH);
+        if (res.data?.is_first_baseline) {
+            banner.classList.add("hidden");
+            return;
+        }
+        const ips = res.data?.new_ips || res.data?.ips || [];
+        const count = Array.isArray(ips) ? ips.length : res.data?.new_ip_count ?? 0;
+        if (!count) {
+            banner.classList.add("hidden");
+            banner.innerHTML = "";
+            return;
+        }
+        const sample = ips.slice(0, 8).join(", ");
+        const more = count > 8 ? ` … (+${count - 8})` : "";
+        banner.innerHTML =
+            `<strong>New IPs since last scan (${count}):</strong> ${sample}${more} ` +
+            `<a href="/ops">Ops</a>`;
+        banner.classList.remove("hidden");
+    } catch (_) {
+        banner.classList.add("hidden");
+    }
+}
+
+window.pcaptainSearch = {
+    runIpInvestigation,
+    copyAllMatchingPaths,
+    exportMatchingCsv,
+    copyWiresharkCommand,
+    exportWiresharkBatch
+};
 
 // Pagination for search results
 function updatePaginationControls(totalItems) {
@@ -575,8 +966,7 @@ function updatePaginationControls(totalItems) {
         if (!isDisabled && !isActive && pageNum !== null) {
             btn.addEventListener("click", () => {
                 currentPage = pageNum;
-                const hasQuery = document.getElementById("searchInput").value.trim() !== "";
-                fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+                fetchFiles();
             });
         }
         buttonsGroup.appendChild(btn);
@@ -655,8 +1045,7 @@ function updatePaginationControls(totalItems) {
 
     select.addEventListener("change", (e) => {
         currentPage = parseInt(e.target.value);
-        const hasQuery = document.getElementById("searchInput").value.trim() !== "";
-        fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+        fetchFiles();
     });
     infoGroup.appendChild(select);
 

@@ -6,7 +6,7 @@ COPY components/ /usr/share/nginx/html/
 COPY config/config.template.js /usr/share/nginx/html/
 
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

@@ -42,7 +42,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend . 
 # Copy entrypoint script
 COPY backend/config/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 RUN mkdir -p /app/pcaps
 
