@@ -22,26 +22,64 @@ let lastFetchTotal = 0;
 let investigatorQuery = null; // { ip, port? } — IP investigator workflow
 let scan_state = false; // Track whether scanning is active
 let scanStatusTimer = null; // Store the interval timer
+let timerInterval = null; // Time variable that a fuction needs to operate it's logic
+
+
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {
     const spinner = document.getElementById("spinnerSearchBtn");
     const searchBtn = document.getElementById("searchBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.remove("spinner-search-hidden");
         spinner.classList.add("spinner-search-visible");
     }
-    if(searchBtn) searchBtn.style.display = "none";
+    if (searchBtn) searchBtn.style.display = "none";
+}
+
+function startTimer() { // Functions that starts the timer
+    const timerElement = document.getElementById("timer");
+    const timeContainer = document.getElementById("timeContainer")
+
+    let startTime = Date.now();
+    timerElement.innerText = "0.0";
+    timeContainer.style.display = "block";
+    // console.log("Timer started");
+
+    if (timerInterval)
+        clearInterval(timerInterval);
+
+    timerInterval = setInterval(() => {
+        let secondsPassed = ((Date.now() - startTime) / 1000).toFixed(1);
+        // this code ensure that even if the browser gets delayed, it wont affect the timer, i guess..., i dont have pcap file large enough to test my theory lol(and the timer is rounded btw)
+        timerElement.innerText = secondsPassed;
+        console.log(`Waiting: ${secondsPassed} secs...`);
+    }, 100);
+}
+
+function stopTimer() {// Functions that ends the timer and reset it
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+
+        const finalSeconds = document.getElementById("timer").innerText;
+
+        // console.log(`Totall runtime ${finalSeconds}`);
+    }
+    else {
+        // console.log("stopTimer did work, but startTimer didnt");
+
+    }
 }
 
 function disappearSearchLoadingSpinner() {
     const spinner = document.getElementById("spinnerSearchBtn");
     const searchBtn = document.getElementById("searchBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.add("spinner-search-hidden");
         spinner.classList.remove("spinner-search-visible");
     }
-    if(searchBtn) searchBtn.style.display = "inline-block";
+    if (searchBtn) searchBtn.style.display = "inline-block";
 }
 
 async function loadScanConfigTooltip() {
@@ -85,26 +123,29 @@ function startScanStatusPolling() {
             const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
             const status = apiResponse.data.state;
             if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
-                  status === SERVER_SCANNING_FILE_STATUS.IDLE
-                ) {
+                status === SERVER_SCANNING_FILE_STATUS.IDLE
+            ) {
                 disappearScanLoadingSpinner();
                 clearInterval(scanStatusTimer);
                 scanStatusTimer = null;
+                stopTimer();
                 showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
                 fetchFiles();
                 serverHealthCheck();
                 refreshNewIpBanner();
             } 
             else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
-                  disappearScanLoadingSpinner();
-                  clearInterval(scanStatusTimer);
-                  scanStatusTimer = null;
-                  showToast(TOAST_STATUS.ERROR, "Scan failed");
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+                stopTimer();
+                showToast(TOAST_STATUS.ERROR, "Scan failed");
             }
         } catch (err) {
             disappearScanLoadingSpinner();
             clearInterval(scanStatusTimer);
             scanStatusTimer = null;
+            stopTimer();
         }
     }, CHECK_SCAN_FILES_STATUS_INTERVAL);
 }
@@ -289,8 +330,8 @@ const sortBySelect = document.getElementById("sortBy");
 const sortOrderSelect = document.getElementById("sortOrder");
 const limitSelect = document.getElementById("limitSelect");
 
-if (limitSelect) limitSelect.value = "5"; 
-if (sortBySelect) sortBySelect.value = "filename";    
+if (limitSelect) limitSelect.value = "5";
+if (sortBySelect) sortBySelect.value = "filename";
 if (sortOrderSelect) sortOrderSelect.value = "false";
 
 loadScanConfigTooltip();
@@ -307,7 +348,7 @@ if (limitSelect) {
 if (sortBySelect) {
     sortBySelect.addEventListener("change", (e) => {
         currentSortBy = e.target.value;
-        currentPage = 1; 
+        currentPage = 1;
         smartFetch();
     });
 }
@@ -315,7 +356,7 @@ if (sortBySelect) {
 if (sortOrderSelect) {
     sortOrderSelect.addEventListener("change", (e) => {
         currentDescending = e.target.value === "true";
-        currentPage = 1; 
+        currentPage = 1;
         smartFetch();
     });
 }
@@ -424,11 +465,11 @@ function displayScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
     const cancelBtn = document.getElementById("cancelScanBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.remove("spinner-scan-hidden");
         spinner.classList.add("spinner-scan-visible");
     }
-    if(scanBtn) scanBtn.style.display = "none";
+    if (scanBtn) scanBtn.style.display = "none";
     if (cancelBtn) cancelBtn.disabled = false;
 }
 
@@ -436,11 +477,11 @@ function disappearScanLoadingSpinner() {
     const spinner = document.getElementById("spinnerScanBtn");
     const scanBtn = document.getElementById("scanBtn");
     const cancelBtn = document.getElementById("cancelScanBtn");
-    if(spinner) {
+    if (spinner) {
         spinner.classList.add("spinner-scan-hidden");
         spinner.classList.remove("spinner-scan-visible");
     }
-    if(scanBtn) scanBtn.style.display = "inline-block";
+    if (scanBtn) scanBtn.style.display = "inline-block";
     if (cancelBtn) cancelBtn.disabled = true;
 }
 
@@ -459,12 +500,13 @@ document.getElementById("cancelScanBtn").addEventListener("click", async () => {
             scanStatusTimer = null;
         }
         disappearScanLoadingSpinner();
+        stopTimer();
         showToast(TOAST_STATUS.INFO, "Scan cancelled");
-    } 
+    }
     catch (err) {
         showToast(TOAST_STATUS.ERROR, "Failed to cancel scan");
     }
-  });
+});
 
 
 const chooseDirBtn = document.getElementById("chooseDirBtn");
@@ -508,7 +550,7 @@ setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
 // --- SCAN STATE MANAGEMENT ---
 function manageScanState() {
     const cancelBtn = document.getElementById("cancelScanBtn");
-    
+
     if (scan_state) {
         // Start interval polling if not already running
         if (!scanStatusTimer) {
@@ -516,7 +558,7 @@ function manageScanState() {
                 try {
                     const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
                     const status = apiResponse.data.state;
-                    
+
                     if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
                         status === SERVER_SCANNING_FILE_STATUS.IDLE
                     ) {
@@ -524,6 +566,7 @@ function manageScanState() {
                         manageScanState(); // This will clear the interval
                         disappearScanLoadingSpinner();
                         if (cancelBtn) cancelBtn.classList.add("hidden");
+                        stopTimer();
                         showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
                         fetchFiles();
                         serverHealthCheck();
@@ -532,6 +575,7 @@ function manageScanState() {
                         manageScanState(); // This will clear the interval
                         disappearScanLoadingSpinner();
                         if (cancelBtn) cancelBtn.classList.add("hidden");
+                        stopTimer();
                         showToast(TOAST_STATUS.ERROR, "Scan failed");
                     }
                 } catch (err) {
@@ -540,6 +584,7 @@ function manageScanState() {
                     manageScanState(); // This will clear the interval
                     disappearScanLoadingSpinner();
                     if (cancelBtn) cancelBtn.classList.add("hidden");
+                    stopTimer();
                 }
             }, CHECK_SCAN_FILES_STATUS_INTERVAL);
         }
@@ -561,6 +606,7 @@ async function scanFiles(targetFolder = null) {
     }
 
     try {
+        startTimer();
         const params = targetFolder ? { folder: targetFolder } : {};
         const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, null, { params });
         if (!apiResponse) {
@@ -593,6 +639,7 @@ async function scanFiles(targetFolder = null) {
         }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
+        stopTimer();
         if (cancelBtn) cancelBtn.classList.add("hidden");
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
@@ -605,12 +652,12 @@ async function syncScanStateOnLoad() {
         if (res.data.state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
             displayScanLoadingSpinner();
             startScanStatusPolling();
-        } 
+        }
         else {
             disappearScanLoadingSpinner();
         }
     } catch (_) {
-          // keep default UI
+        // keep default UI
     }
 }
 
@@ -621,10 +668,14 @@ refreshNewIpBanner();
 async function fetchFiles() {
     try {
         displaySearchLoadingSpinner();
+        startTimer();
+
+        const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
 
         const apiResponse = await requestSearchPage(currentPage, itemsPerPage);
 
         disappearSearchLoadingSpinner();
+        stopTimer();
 
         if (!apiResponse || !apiResponse.data) {
             showToast(TOAST_STATUS.ERROR, "Failed to get response");
@@ -643,6 +694,7 @@ async function fetchFiles() {
         return { total: totalItems, shown: files.length };
     } catch (err) {
         disappearSearchLoadingSpinner();
+        stopTimer();
         console.error("API error: ", err);
         const detail = err.response?.data?.detail;
         const msg = typeof detail === "string" ? detail : "Error while searching files";
@@ -895,7 +947,7 @@ function updatePaginationControls(totalItems) {
     const container = document.getElementById("paginationContainer");
     if (!container) return;
 
-    container.innerHTML = ""; 
+    container.innerHTML = "";
 
     if (totalItems === 0) return;
 
@@ -1008,7 +1060,7 @@ function updatePaginationControls(totalItems) {
 function formatDate(timestamp) {
     if (!timestamp) return "N/A";
     const date = new window.Date(parseFloat(timestamp) * 1000);
-    return date.toLocaleString(); 
+    return date.toLocaleString();
 }
 
 // --- NAMED EVENT HANDLERS ---
@@ -1067,7 +1119,7 @@ async function checkScanStateOnReady() {
             }
             if (scanBtn) scanBtn.style.display = "none";
             if (cancelBtn) cancelBtn.classList.remove("hidden");
-            
+
             // Set scan_state and start interval polling
             scan_state = true;
             manageScanState();
@@ -1210,7 +1262,7 @@ function renderTable(files) {
 
     files.forEach((file, index) => {
         const tr = document.createElement('tr');
-        
+
         const btnId = `infoBtn-${index}`;
 
         // Updated extra info column
