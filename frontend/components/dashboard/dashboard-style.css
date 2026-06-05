@@ -562,3 +562,58 @@ nav {
         width: 100%;
     }
 }
+
+.catalog-overview-card {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.overview-sub {
+    font-size: 13px;
+    opacity: 0.9;
+    margin-top: 4px;
+}
+
+.catalog-panel {
+    margin-bottom: 24px;
+}
+
+.catalog-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.catalog-panel-header h2 {
+    margin: 0;
+    color: #333;
+}
+
+.catalog-panel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+
+.catalog-panel-grid h3 {
+    font-size: 14px;
+    color: #555;
+    margin-bottom: 10px;
+}
+
+.cooccurrence-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.cooccurrence-controls input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.catalog-cooccurrence {
+    grid-column: 1 / -1;
+}

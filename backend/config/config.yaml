@@ -4,8 +4,9 @@ redis:
   host: redis
   port: 6380
 pcap:
-  root_directory: /pcaps
+  root_directory: /pcaps/blahblah
   # Replace with root directory for processed pcap files path when return to client
+
   prefix_str: ./pcaps
   allowed_file_extensions:
     - .pcap
@@ -14,6 +15,7 @@ pcap:
   scan_interval_seconds: 3600 # 1 hour
   scan_mode: fast # options: full, quick, fast
   # Quick scan (tshark sampling) settings
+
   # for files >= min_file_size, and only scan `pebc` of bytes.
   quick_scan:
     pebc: 0.1
@@ -21,3 +23,7 @@ pcap:
     config_version: v1
 log:
   level: INFO
+catalog:
+  endpoint_index_enabled: true
+  endpoint_max_packets: 10000
+  stats_cache_ttl_seconds: 300

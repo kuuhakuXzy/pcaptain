@@ -1,0 +1,126 @@
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0f1419;
+    color: #e7ecf3;
+}
+
+.ops-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+.ops-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.ops-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.ops-header nav {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.nav-link {
+    color: #7eb8ff;
+    text-decoration: none;
+}
+
+.nav-link:hover {
+    text-decoration: underline;
+}
+
+.ops-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+}
+
+.ops-card {
+    background: #1a2332;
+    border: 1px solid #2a3a52;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+}
+
+.ops-card h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.ops-desc {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    color: #9aa8bc;
+}
+
+.ops-pre {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: #0b1018;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    max-height: 280px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.ops-pre.hidden {
+    display: none;
+}
+
+.primary-btn,
+.secondary-btn {
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 0.45rem 0.9rem;
+    border: none;
+    font-size: 0.9rem;
+}
+
+.primary-btn {
+    background: #2d6cdf;
+    color: #fff;
+}
+
+.secondary-btn {
+    background: #2a3a52;
+    color: #e7ecf3;
+}
+
+.ops-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+textarea,
+select {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid #2a3a52;
+    background: #0b1018;
+    color: #e7ecf3;
+    font-family: inherit;
+}
+
+.ops-status {
+    font-size: 0.85rem;
+    color: #9aa8bc;
+    min-height: 1.2em;
+}
