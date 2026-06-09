@@ -16,22 +16,35 @@
         Promise.all([
             fetch('info-modal.html').then(r => r.text())
         ])
-        .then(([infoHtml]) => {
-            const container = document.querySelector('.container');
-            container.insertAdjacentHTML('beforeend', infoHtml);
-            document.dispatchEvent(new Event("dynamic-dom-ready"));
-        })
-        .catch(err => {
-            console.error('Failed to load dynamic fragments', err);
-        });
+            .then(([infoHtml]) => {
+                const container = document.querySelector('.container');
+                container.insertAdjacentHTML('beforeend', infoHtml);
+                document.dispatchEvent(new Event("dynamic-dom-ready"));
+            })
+            .catch(err => {
+                console.error('Failed to load dynamic fragments', err);
+            });
+    </script>
+    <script>
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme) {
+            document.documentElement.setAttribute("data-theme", savedTheme);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+        }
     </script>
 </head>
 
 <body>
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
+        <div id="timeContainer" style="display: none; margin-bottom: 10px; font-weight: bold; color: #555;">
+            <i class="fa fa-clock-o"></i> Execution Time: <span id="timer">0</span>s
+            <!-- new div to show the total time -->
+        </div>
         <div class="search-box">
-            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
+            <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required
+                autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
             <button id="searchBtn">Search</button>
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
@@ -39,10 +52,14 @@
             <span id="scanModeBadge" class="scan-mode-badge hidden" title="Server scan mode"></span>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
-            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+            <button id="themeToggle" title="Dark/Light Mode" class="page-btn"><i class="fa fa-moon-o"></i></button>
+            </button>
+            <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn"
+                title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
-            <button id="opsBtn" onclick="location.href='/ops'" class="dashboard-btn" title="Ops: health, duplicates, merge">
+            <button id="opsBtn" onclick="location.href='/ops'" class="dashboard-btn"
+                title="Ops: health, duplicates, merge">
                 <i class="fa fa-heartbeat"></i>
             </button>
             <!-- Remove because no use case -->
@@ -64,10 +81,12 @@
         <section class="ip-investigator" aria-labelledby="investigatorTitle">
             <div class="ip-investigator-header">
                 <h2 id="investigatorTitle"><i class="fa fa-crosshairs"></i> IP investigator</h2>
-                <p class="ip-investigator-desc">Have an IP from logs or a firewall alert? Find which indexed PCAPs contain that traffic, then copy paths or open in Wireshark.</p>
+                <p class="ip-investigator-desc">Have an IP from logs or a firewall alert? Find which indexed PCAPs
+                    contain that traffic, then copy paths or open in Wireshark.</p>
             </div>
             <div class="ip-investigator-row">
-                <input id="investigatorIp" type="text" placeholder="IP to investigate, e.g. 10.0.0.5" autocomplete="off" />
+                <input id="investigatorIp" type="text" placeholder="IP to investigate, e.g. 10.0.0.5"
+                    autocomplete="off" />
                 <input id="investigatorPort" type="number" min="1" max="65535" placeholder="Port (optional)" />
                 <button type="button" id="investigatorSearchBtn" class="investigator-primary-btn">Find PCAPs</button>
             </div>
@@ -79,10 +98,12 @@
                 <button type="button" id="investigatorExportCsv" class="secondary-btn">
                     <i class="fa fa-download"></i> Download CSV
                 </button>
-                <button type="button" id="investigatorWiresharkHint" class="secondary-btn" title="Copy Wireshark command for the first file on this page (Windows)">
+                <button type="button" id="investigatorWiresharkHint" class="secondary-btn"
+                    title="Copy Wireshark command for the first file on this page (Windows)">
                     <i class="fa fa-external-link"></i> Wireshark command
                 </button>
-                <button type="button" id="investigatorWiresharkBatch" class="secondary-btn" title="Download script to open multiple files (.bat / .sh)">
+                <button type="button" id="investigatorWiresharkBatch" class="secondary-btn"
+                    title="Download script to open multiple files (.bat / .sh)">
                     <i class="fa fa-files-o"></i> Batch Wireshark
                 </button>
             </div>
@@ -131,7 +152,8 @@
                     <input id="filterSizeMax" type="number" min="0" step="0.1" placeholder="unlimited" />
                 </label>
             </div>
-            <p class="advanced-hint">Protocol box supports shorthand: <code>sip !tcp</code>. IP/port use the Network Catalog index (run Scan or Backfill in Tools).</p>
+            <p class="advanced-hint">Protocol box supports shorthand: <code>sip !tcp</code>. IP/port use the Network
+                Catalog index (run Scan or Backfill in Tools).</p>
         </div>
 
         <!-- Control setting for sorting and pagination -->
@@ -145,7 +167,7 @@
                     <option value="capture_start">Capture start</option>
                     <option value="path">Path</option>
                 </select>
-                
+
                 <select id="sortOrder" class="control-select">
                     <option value="false">Ascending</option>
                     <option value="true">Descending</option>
@@ -175,11 +197,12 @@
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
-                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i>
+                        </th>
                         <th>Matched</th>
                         <th>Size</th>
                         <th>Packet</th>
-                        
+
                     </tr>
                 </thead>
                 <tbody id="resultBody">
@@ -195,7 +218,8 @@
         <div id="scanModal" class="modal hidden">
             <div class="modal-content">
                 <h2>Scan PCAPs</h2>
-                <p class="scan-modal-hint">Scan the entire PCAP root, or choose one immediate subfolder (folder name on disk).</p>
+                <p class="scan-modal-hint">Scan the entire PCAP root, or choose one immediate subfolder (folder name on
+                    disk).</p>
                 <label class="scan-folder-label">
                     <span>Subfolder (optional)</span>
                     <select id="scanFolderSelect">
@@ -263,7 +287,8 @@
                 </div>
                 <div class="tools-section">
                     <h3>Indexes</h3>
-                    <button type="button" id="backfillEndpointsBtn" class="action-btn">Backfill IP/port &amp; capture times</button>
+                    <button type="button" id="backfillEndpointsBtn" class="action-btn">Backfill IP/port &amp; capture
+                        times</button>
                     <button type="button" id="exportIndexBtn" class="action-btn">Export catalog JSON</button>
                     <label class="import-label">
                         Import catalog JSON
@@ -285,6 +310,32 @@
 
     </div>
 
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const toggleBtn = document.getElementById("themeToggle");
+            if (!toggleBtn) return;
+
+            const icon = toggleBtn.querySelector("i");
+            const setIcon = (theme) => {
+                if (theme === "dark") {
+                    icon.className = "fa fa-sun-o";
+                } else {
+                    icon.className = "fa fa-moon-o";
+                }
+            };
+
+            setIcon(document.documentElement.getAttribute("data-theme"));
+
+            toggleBtn.addEventListener("click", () => {
+                const currentTheme = document.documentElement.getAttribute("data-theme");
+                const newTheme = currentTheme === "dark" ? "light" : "dark";
+
+                document.documentElement.setAttribute("data-theme", newTheme);
+                localStorage.setItem("theme", newTheme);
+                setIcon(newTheme);
+            });
+        });
+    </script>
     <script src="config.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
