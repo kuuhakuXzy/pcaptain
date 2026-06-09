@@ -22,6 +22,7 @@ pcap:
     min_file_size: 1024
     config_version: v1
   # Default fastscan flags (user can override per scan in UI)
+
   fast_scan:
     output: summary
     emit_fingerprint: false

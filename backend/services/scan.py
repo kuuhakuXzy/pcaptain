@@ -17,6 +17,7 @@ from .context import AppContext, with_app_context
 from .config import ScanMode
 from .fastscan_options import (
     FastScanDefaults,
+    ProtocolScanResult,
     build_fastscan_command,
     merge_fast_options,
     parse_fastscan_output,
@@ -309,7 +310,43 @@ class ScanService:
         "fastscan": None,
     }
     active_fast_scan_options: Optional[FastScanUserOptions] = None
-    _last_protocol_fingerprint: Optional[str] = None
+    _active_endpoint_max_packets: Optional[int] = None
+    _timing_lock = threading.Lock()
+    _scan_timing_ms: Dict[str, float] = {
+        "protocol_ms": 0.0,
+        "endpoints_tshark_ms": 0.0,
+        "capinfos_ms": 0.0,
+        "redis_ms": 0.0,
+        "files_timed": 0.0,
+    }
+
+    def _reset_scan_timing(self) -> None:
+        with self._timing_lock:
+            self._scan_timing_ms = {
+                "protocol_ms": 0.0,
+                "endpoints_tshark_ms": 0.0,
+                "capinfos_ms": 0.0,
+                "redis_ms": 0.0,
+                "files_timed": 0.0,
+            }
+
+    def _add_timing(self, key: str, delta_ms: float) -> None:
+        with self._timing_lock:
+            self._scan_timing_ms[key] = self._scan_timing_ms.get(key, 0.0) + delta_ms
+
+    def _finalize_file_timing(self) -> None:
+        with self._timing_lock:
+            self._scan_timing_ms["files_timed"] += 1.0
+
+    def _timing_summary(self) -> Dict[str, float]:
+        with self._timing_lock:
+            raw = dict(self._scan_timing_ms)
+        files = int(raw.get("files_timed") or 0)
+        summary: Dict[str, float] = {k: round(v, 1) for k, v in raw.items()}
+        if files > 0:
+            for key in ("protocol_ms", "endpoints_tshark_ms", "capinfos_ms", "redis_ms"):
+                summary[f"avg_{key}"] = round(raw.get(key, 0.0) / files, 1)
+        return summary
     
     async def should_process_file(
         self,
@@ -476,36 +513,42 @@ class ScanService:
             
             logger.info("Processing file: %s (scan_mode: %s)", file_path, current_scan_mode.value)
 
-            # Call fastscan
             check_cancellation(self.scan_cancel_event)
+            t_protocol = time.perf_counter()
             protocol_result = await self.get_protocols_from_pcap(
                 file_path,
                 excluded_protocols=None,
                 scan_mode=current_scan_mode,
                 quick_threshold_bytes=quick_threshold_bytes,
             )
+            self._add_timing("protocol_ms", (time.perf_counter() - t_protocol) * 1000)
 
             if protocol_result is None:
                 logger.warning(f"Skipping file {filename} from index due to processing error.")
                 await self._record_scan_failure(redis_client, file_path, "protocol_scan_failed")
                 return
-            
-            protocol_data, packets_scanned = protocol_result
+
+            protocol_data = protocol_result.protocol_counts
+            packets_scanned = protocol_result.packets_scanned
 
             if not protocol_data:
                 logger.warning(f"No protocols found in {filename}. Skipping from index.")
                 return
 
-            # Compute metadata
             protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
 
-            # Recompute hash in case the file changed during scan
             file_hash = await calculate_sha256(file_path)
             pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
 
             protocols = sorted(list(protocol_data.keys()))
             download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
+
+            t_capinfos = time.perf_counter()
             total_packets = await get_total_packets_from_pcap(file_path)
+            capture_start, capture_end = await asyncio.to_thread(
+                get_capture_time_range_sync, file_path
+            )
+            self._add_timing("capinfos_ms", (time.perf_counter() - t_capinfos) * 1000)
 
             if total_packets is None:
                 logger.warning(f"capinfos failed for {file_path}; continuing without total_packets")
@@ -524,17 +567,22 @@ class ScanService:
             ips: Set[str] = set()
             ports: Set[str] = set()
             if catalog_cfg.endpoint_index_enabled:
-                extracted = await asyncio.to_thread(
-                    extract_endpoints_sync,
-                    file_path,
-                    max_packets=catalog_cfg.endpoint_max_packets,
-                )
-                ips = extracted.get("ips", set())
-                ports = extracted.get("ports", set())
-
-            capture_start, capture_end = await asyncio.to_thread(
-                get_capture_time_range_sync, file_path
-            )
+                if current_scan_mode == ScanMode.FAST:
+                    ips = set(protocol_result.indexed_ips or set())
+                    ports = set(protocol_result.indexed_ports or set())
+                else:
+                    t_endpoints = time.perf_counter()
+                    extracted = await asyncio.to_thread(
+                        extract_endpoints_sync,
+                        file_path,
+                        max_packets=catalog_cfg.endpoint_max_packets,
+                    )
+                    self._add_timing(
+                        "endpoints_tshark_ms",
+                        (time.perf_counter() - t_endpoints) * 1000,
+                    )
+                    ips = extracted.get("ips", set())
+                    ports = extracted.get("ports", set())
 
             file_mapping = {
                 "filename": filename,
@@ -562,11 +610,9 @@ class ScanService:
                 file_mapping["capture_start"] = capture_start
             if capture_end is not None:
                 file_mapping["capture_end"] = capture_end
-            if self._last_protocol_fingerprint:
-                file_mapping["protocol_fingerprint"] = self._last_protocol_fingerprint
-            self._last_protocol_fingerprint = None
+            if protocol_result.protocol_fingerprint:
+                file_mapping["protocol_fingerprint"] = protocol_result.protocol_fingerprint
 
-            # Write to Redis
             pipe = redis_client.pipeline()
 
             pipe.hset(pcap_key, mapping=file_mapping)
@@ -594,7 +640,10 @@ class ScanService:
 
             add_endpoint_indexes(redis_client, pipe, file_hash, ips, ports)
 
+            t_redis = time.perf_counter()
             await asyncio.to_thread(pipe.execute)
+            self._add_timing("redis_ms", (time.perf_counter() - t_redis) * 1000)
+            self._finalize_file_timing()
 
             logger.info(
                 "Indexed file %s (hash: %s) with protocols: %s",
@@ -738,6 +787,9 @@ class ScanService:
             fast_options,
         )
         self.active_fast_scan_options = merged_fast
+        self._active_endpoint_max_packets = context.config.catalog.endpoint_max_packets
+        self._reset_scan_timing()
+        self.scan_status.pop("timing_ms", None)
 
         scan_event = "scan.failed"
         try:
@@ -784,7 +836,11 @@ class ScanService:
             scan_event = "scan.failed"
         finally:
             self.active_fast_scan_options = None
+            self._active_endpoint_max_packets = None
             self.scan_status.pop("fast_scan_options", None)
+            timing = self._timing_summary()
+            if timing.get("files_timed", 0) > 0:
+                self.scan_status["timing_ms"] = timing
             try:
                 from .webhooks import dispatch_scan_webhooks
 
@@ -1064,18 +1120,21 @@ class ScanService:
         self,
         pcap_file: str,
         excluded_protocols: Optional[set[str]] = None,
-    ) -> Optional[Tuple[Dict[str, int], int]]:
+    ) -> Optional[ProtocolScanResult]:
         """Fast protocol scan using fastscan binary with per-scan user options."""
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
-        self._last_protocol_fingerprint = None
 
         if not os.path.exists(pcap_file):
             logger.error("PCAP file not found: %s", pcap_file)
             return None
 
         options = self.active_fast_scan_options or FastScanUserOptions()
-        command = build_fastscan_command(pcap_file, options)
+        command = build_fastscan_command(
+            pcap_file,
+            options,
+            endpoint_max_packets=self._active_endpoint_max_packets,
+        )
         
         try:
             process = subprocess.Popen(
@@ -1129,10 +1188,15 @@ class ScanService:
                 excluded_protocols=excluded_protocols,
             )
             if parsed is None:
-                return {}, 0
+                return ProtocolScanResult({}, 0)
 
-            self._last_protocol_fingerprint = parsed.protocol_fingerprint
-            return parsed.protocol_counts, parsed.packets_scanned
+            return ProtocolScanResult(
+                protocol_counts=parsed.protocol_counts,
+                packets_scanned=parsed.packets_scanned,
+                indexed_ips=set(parsed.indexed_ips),
+                indexed_ports=set(parsed.indexed_ports),
+                protocol_fingerprint=parsed.protocol_fingerprint,
+            )
 
         except FileNotFoundError:
             logger.error("fastscan binary not found in PATH")
@@ -1149,7 +1213,7 @@ class ScanService:
         *,
         quick_threshold_bytes: Optional[int],
         excluded_protocols: Optional[set[str]] = None,
-    ) -> Optional[Tuple[Dict[str, int], int]]:
+    ) -> Optional[ProtocolScanResult]:
         """Quick scan via tshark, stopping after threshold bytes."""
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
@@ -1157,7 +1221,7 @@ class ScanService:
         threshold = quick_threshold_bytes or 0
         if threshold <= 0:
             logger.warning("Quick scan threshold is <= 0 for %s; skipping", pcap_file)
-            return {}, 0
+            return ProtocolScanResult({}, 0)
 
         command = [
             "tshark",
@@ -1267,7 +1331,7 @@ class ScanService:
                 bytes_scanned,
                 packets_scanned,
             )
-            return protocol_counts, packets_scanned
+            return ProtocolScanResult(protocol_counts, packets_scanned)
 
         except FileNotFoundError:
             logger.error("tshark not found — please install it.")
@@ -1284,7 +1348,7 @@ class ScanService:
 
     def get_protocols_from_pcap_sync(
         self, pcap_file: str, excluded_protocols: Optional[set[str]] = None
-    ) -> Optional[Tuple[Dict[str, int], int]]:
+    ) -> Optional[ProtocolScanResult]:
         # Normal mode: use tshark
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
@@ -1343,7 +1407,7 @@ class ScanService:
             output = "".join(stdout_lines).strip()
 
             if not output:
-                return {}, 0
+                return ProtocolScanResult({}, 0)
 
             protocol_counts: Dict[str, int] = {}
 
@@ -1356,7 +1420,7 @@ class ScanService:
                 for proto in unique_protocols:
                     protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
 
-            return protocol_counts, len(lines)
+            return ProtocolScanResult(protocol_counts, len(lines))
 
         except FileNotFoundError:
             logger.error("tshark not found — please install it.")
@@ -1374,7 +1438,7 @@ class ScanService:
         excluded_protocols: Optional[set[str]] = None,
         scan_mode: ScanMode = ScanMode.FULL,
         quick_threshold_bytes: Optional[int] = None,
-    ) -> Optional[Tuple[Dict[str, int], int]]:
+    ) -> Optional[ProtocolScanResult]:
         match scan_mode:
             case ScanMode.FAST:
                 return await asyncio.to_thread(

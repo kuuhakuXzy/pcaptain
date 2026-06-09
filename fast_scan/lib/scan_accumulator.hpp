@@ -22,9 +22,21 @@ public:
 
     void write_summary(OutputSink& sink, const FastScanSettings& settings) const;
     void write_fingerprint(OutputSink& sink) const;
+    void write_endpoints(OutputSink& sink) const;
+
+    void record_endpoints(
+        const char* src_ip,
+        const char* dst_ip,
+        uint16_t sport,
+        uint16_t dport,
+        bool has_l4,
+        uint64_t packet_index,
+        const FastScanSettings& settings);
 
 private:
     uint64_t _packets_seen = 0;
     uint64_t _packets_scanned = 0;
     std::unordered_map<std::string, uint64_t> _protocol_counts;
+    std::unordered_set<std::string> _ips;
+    std::unordered_set<std::string> _ports;
 };

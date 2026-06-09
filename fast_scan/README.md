@@ -66,7 +66,10 @@ Usage:
 | Cap | `--max-packets N` | Stop after N packets |
 | BPF filter | `--bpf 'expr'` | libpcap filter before parse |
 | Fingerprint | `--fingerprint` | Extra `PCAPTAIN_FP` line for duplicate detection |
+| Endpoint cap | `--endpoint-max-packets N` | Collect unique IPs/ports from first N packets (matches catalog tshark `-c`) |
 | Port overrides | `--ports-file PATH` | Lines: `PORT l4proto appname` (see `ports.overlay.example`) |
+
+Summary mode also emits `PCAPTAIN_ENDPOINTS ips=... ports=...` so pcaptain fast scan does not run a second tshark pass for catalog IP/port indexes.
 
 In the Search page scan modal, these appear when server `scan_mode` is `fast`. POST `/reindex` with JSON body `{ "folder": "...", "fast_options": { ... } }`.
 

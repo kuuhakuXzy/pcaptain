@@ -12,24 +12,29 @@ public:
 
     void handle_packet(const pcap_pkthdr* hdr,
                        const u_char* packet,
-                       int dlt);
+                       int dlt,
+                       uint64_t packet_index);
 
 private:
     void handle_ipv4(const pcap_pkthdr* hdr,
                      const u_char* packet,
                      size_t offset,
+                     uint64_t packet_index,
                      ProtoPath& path);
 
     void handle_ipv6(const pcap_pkthdr* hdr,
                      const u_char* packet,
                      size_t offset,
+                     uint64_t packet_index,
                      ProtoPath& path);
 
-    void handle_l4(uint8_t proto,
+    bool handle_l4(uint8_t proto,
                    const u_char* packet,
                    size_t caplen,
                    size_t offset,
-                   ProtoPath& path);
+                   ProtoPath& path,
+                   uint16_t& sport,
+                   uint16_t& dport);
 
     PortTable _ports;
     OutputSink* _line_sink;
