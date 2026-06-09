@@ -19,6 +19,7 @@ set(SOURCES
     fast_scan.cpp
     src/scanner.cpp
     src/inference.cpp
+    src/scan_accumulator.cpp
 )
 
 # Create executable

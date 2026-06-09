@@ -946,6 +946,141 @@ a:visited {
     border-radius: 4px;
 }
 
+.scan-mode-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    border-radius: 4px;
+    vertical-align: middle;
+    line-height: 1;
+}
+
+.scan-mode-badge.hidden {
+    display: none;
+}
+
+.scan-mode-fast {
+    background: #0d6efd;
+    color: #fff;
+}
+
+.scan-mode-quick {
+    background: #f0ad4e;
+    color: #1a1a1a;
+}
+
+.scan-mode-full {
+    background: #6c757d;
+    color: #fff;
+}
+
+.fast-scan-not-active {
+    margin: 8px 0 12px;
+    padding: 10px;
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    border-radius: 6px;
+    text-align: left;
+}
+
+.fast-scan-not-active code {
+    font-size: 12px;
+}
+
+.fast-scan-presets {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.fast-preset-label {
+    font-size: 12px;
+    color: #555;
+    margin-right: 4px;
+}
+
+.fast-preset-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid #b8c4d0;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.fast-preset-btn:hover {
+    background: #e8f0fe;
+    border-color: #0060A9;
+}
+
+.fast-scan-summary {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    background: #e8f4fc;
+    border-left: 3px solid #0060A9;
+    border-radius: 0 4px 4px 0;
+    color: #0b1e2d;
+}
+
+.fast-scan-summary.hidden {
+    display: none;
+}
+
+.fast-scan-options {
+    margin: 12px 0 16px;
+    padding: 12px;
+    background: #f6f8fa;
+    border: 1px solid #dde3ea;
+    border-radius: 6px;
+    text-align: left;
+}
+
+.fast-scan-options h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+}
+
+.fast-opt-row {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+
+.fast-opt-row select,
+.fast-opt-row input[type="text"],
+.fast-opt-row input[type="number"] {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.fast-opt-check {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.fast-opt-check input[type="checkbox"] {
+    margin: 0;
+}
+
+.fast-opt-check input[type="number"] {
+    width: 120px;
+    flex: 0 0 auto;
+    margin-top: 0;
+}
+
 .catalog-tools-content {
     max-width: 520px;
     text-align: left;

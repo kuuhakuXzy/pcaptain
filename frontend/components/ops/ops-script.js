@@ -1,10 +1,32 @@
 import { API_PATH, SERVER } from "../constant.js";
+import {
+    OPS_FAST_IDS,
+    applyFastScanPreset,
+    collectFastScanOptions,
+    formatFastScanOptionsSummary,
+    isFastScanMode,
+    saveFastScanPrefs,
+    updateFastScanOptionsPanel,
+    wireFastScanOptionToggles,
+} from "../fast-scan-options.js";
+
+let cachedOpsScanConfig = null;
 
 function showPre(id, data) {
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
     el.classList.remove("hidden");
+}
+
+async function loadOpsScanConfig() {
+    try {
+        const res = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
+        cachedOpsScanConfig = res.data || {};
+        updateFastScanOptionsPanel(OPS_FAST_IDS, cachedOpsScanConfig);
+    } catch (_) {
+        cachedOpsScanConfig = null;
+    }
 }
 
 async function loadHealth() {
@@ -66,6 +88,7 @@ function buildWiresharkSh(paths) {
 document.getElementById("opsRefreshBtn")?.addEventListener("click", () => {
     loadHealth();
     loadFolders();
+    loadOpsScanConfig();
 });
 
 document.getElementById("opsDuplicatesBtn")?.addEventListener("click", async () => {
@@ -145,6 +168,12 @@ document.getElementById("opsMergeBtn")?.addEventListener("click", async () => {
     }
 });
 
+document.getElementById("opsFastPresets")?.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-preset]");
+    if (!btn || !cachedOpsScanConfig) return;
+    applyFastScanPreset(OPS_FAST_IDS, cachedOpsScanConfig, btn.dataset.preset);
+});
+
 document.getElementById("opsFolderScanBtn")?.addEventListener("click", async () => {
     const status = document.getElementById("opsFolderStatus");
     const folder = document.getElementById("opsFolderSelect")?.value?.trim();
@@ -154,8 +183,18 @@ document.getElementById("opsFolderScanBtn")?.addEventListener("click", async () 
     }
     if (status) status.textContent = "Starting scan…";
     try {
-        const res = await axios.post(SERVER + API_PATH.REINDEX_FOLDER_PATH, { folder });
-        if (status) status.textContent = JSON.stringify(res.data);
+        const body = { folder };
+        const fastOpts = collectFastScanOptions(OPS_FAST_IDS, cachedOpsScanConfig);
+        if (fastOpts) {
+            body.fast_options = fastOpts;
+            saveFastScanPrefs(fastOpts);
+        }
+        const res = await axios.post(SERVER + API_PATH.REINDEX_FOLDER_PATH, body);
+        let msg = JSON.stringify(res.data);
+        if (isFastScanMode(cachedOpsScanConfig) && fastOpts) {
+            msg += `\n${formatFastScanOptionsSummary(fastOpts)}`;
+        }
+        if (status) status.textContent = msg;
     } catch (err) {
         if (status) status.textContent = err.response?.data?.message || err.message;
     }
@@ -179,5 +218,7 @@ document.getElementById("opsWireShBtn")?.addEventListener("click", () => {
     downloadText("open-wireshark.sh", buildWiresharkSh(paths), "text/plain");
 });
 
+wireFastScanOptionToggles(OPS_FAST_IDS);
 loadHealth();
 loadFolders();
+loadOpsScanConfig();

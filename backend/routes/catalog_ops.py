@@ -128,9 +128,13 @@ async def reindex_folder(
         lambda: scan_service.scan_wrapper(
             exclude_files=None,
             target_folder=folder,
+            fast_options=body.fast_options,
         ),
     )
-    return JSONResponse(content={"status": "started", "folder": folder})
+    out = {"status": "started", "folder": folder}
+    if body.fast_options is not None:
+        out["fast_options"] = body.fast_options.model_dump(exclude_none=True)
+    return JSONResponse(content=out)
 
 
 @router.post("/pcaps/merge", summary="Merge multiple indexed PCAPs into one file")

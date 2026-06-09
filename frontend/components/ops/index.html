@@ -62,10 +62,44 @@
 
             <section class="ops-card">
                 <h2>Scan by folder</h2>
-                <p class="ops-desc">Index PCAPs in one immediate subfolder under the PCAP root.</p>
+                <p class="ops-desc">Index PCAPs in one immediate subfolder under the PCAP root. Uses the same fast-scan options as Search when server mode is <strong>fast</strong>.</p>
                 <select id="opsFolderSelect">
                     <option value="">— Select folder —</option>
                 </select>
+                <p id="opsFastScanNotActiveNotice" class="ops-fast-notice hidden">Fast options off — set <code>pcap.scan_mode: fast</code> in backend config.</p>
+                <div id="opsFastScanPanel" class="ops-fast-panel hidden">
+                    <div class="ops-fast-presets" id="opsFastPresets">
+                        <button type="button" class="secondary-btn ops-preset-btn" data-preset="default">Default</button>
+                        <button type="button" class="secondary-btn ops-preset-btn" data-preset="large">Large PCAP</button>
+                        <button type="button" class="secondary-btn ops-preset-btn" data-preset="dup">Dup check</button>
+                    </div>
+                    <label class="ops-fast-row">
+                        Output
+                        <select id="opsFastOutputSelect">
+                            <option value="summary">Summary</option>
+                            <option value="lines">Per-packet lines</option>
+                        </select>
+                    </label>
+                    <label class="ops-fast-row ops-fast-check">
+                        <input type="checkbox" id="opsFastSampleEnable" />
+                        Sample every N
+                        <input type="number" id="opsFastSampleEvery" min="2" value="10" disabled />
+                    </label>
+                    <label class="ops-fast-row ops-fast-check">
+                        <input type="checkbox" id="opsFastMaxPacketsEnable" />
+                        Max packets
+                        <input type="number" id="opsFastMaxPackets" min="1000" value="500000" disabled />
+                    </label>
+                    <label class="ops-fast-row">
+                        BPF filter
+                        <input type="text" id="opsFastBpfFilter" placeholder="tcp port 443" />
+                    </label>
+                    <label class="ops-fast-row ops-fast-check">
+                        <input type="checkbox" id="opsFastFingerprintEnable" />
+                        Protocol fingerprint
+                    </label>
+                    <p id="opsFastScanSummary" class="ops-fast-summary hidden"></p>
+                </div>
                 <button type="button" id="opsFolderScanBtn" class="primary-btn">Start scan</button>
                 <p id="opsFolderStatus" class="ops-status"></p>
             </section>

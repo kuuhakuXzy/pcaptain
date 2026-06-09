@@ -48,3 +48,6 @@ private:
 
 // Populate port table with well-known port assignments (HTTP, SSH, DNS, etc.)
 void init_port_table(PortTable& ports);
+
+// Optional overlay: lines "PORT L4PROTO APP" e.g. "8443 tcp https-alt"
+bool apply_ports_file(PortTable& ports, const char* path);

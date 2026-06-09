@@ -2,6 +2,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from models.scan_options import FastScanUserOptions
 
 class ProtocolFilter(BaseModel):
     include: list[str] = Field(default_factory=list)
@@ -40,3 +41,4 @@ class ReindexFolderRequest(BaseModel):
         None,
         description="Immediate subdirectory name under PCAP root (e.g. blahblah)",
     )
+    fast_options: Optional[FastScanUserOptions] = None

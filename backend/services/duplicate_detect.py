@@ -25,6 +25,7 @@ async def find_duplicate_groups(
     """Group files by near-duplicate fingerprint (size + packet count)."""
     same_name_size: dict[tuple[str, int], list[dict]] = defaultdict(list)
     near_by_fp: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    by_protocol_fp: dict[str, list[dict]] = defaultdict(list)
 
     cursor = 0
     total_indexed = 0
@@ -63,6 +64,9 @@ async def find_duplicate_groups(
             name_key = (entry["filename"].lower(), size_b)
             same_name_size[name_key].append(entry)
             near_by_fp[(size_b, packets)].append(entry)
+            proto_fp = (row.get("protocol_fingerprint") or "").strip()
+            if proto_fp:
+                by_protocol_fp[proto_fp].append(entry)
 
         if cursor == 0:
             break
@@ -96,10 +100,24 @@ async def find_duplicate_groups(
         )
     near_groups.sort(key=lambda g: g["count"], reverse=True)
 
+    protocol_fp_groups = [
+        {
+            "type": "protocol_fingerprint",
+            "fingerprint": {"protocol_fingerprint": fp},
+            "files": files,
+            "count": len(files),
+        }
+        for fp, files in by_protocol_fp.items()
+        if len(files) >= min_group_size
+    ]
+    protocol_fp_groups.sort(key=lambda g: g["count"], reverse=True)
+
     return {
         "total_indexed": total_indexed,
         "exact_duplicate_groups": exact_groups[:max_groups],
         "near_duplicate_groups": near_groups[:max_groups],
+        "protocol_fingerprint_groups": protocol_fp_groups[:max_groups],
         "exact_group_count": len(exact_groups),
         "near_group_count": len(near_groups),
+        "protocol_fingerprint_group_count": len(protocol_fp_groups),
     }

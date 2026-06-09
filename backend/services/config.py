@@ -24,6 +24,17 @@ class QuickScanConfig(BaseModel):
     min_file_size: int | str = 0
     config_version: str = "v1"
 
+
+class FastScanConfig(BaseModel):
+    """Default fastscan options when the user does not override per scan."""
+
+    output: str = "summary"
+    sample_every: Optional[int] = None
+    max_packets: Optional[int] = None
+    bpf_filter: Optional[str] = None
+    emit_fingerprint: bool = False
+    ports_file: Optional[str] = None
+
     @field_validator("pebc")
     @classmethod
     def validate_pebc(cls, v: float) -> float:
@@ -38,6 +49,7 @@ class PcapConfig(BaseModel):
     scan_interval_seconds: int = 300
     scan_mode: ScanMode = ScanMode.FULL
     quick_scan: QuickScanConfig = Field(default_factory=QuickScanConfig)
+    fast_scan: FastScanConfig = Field(default_factory=FastScanConfig)
 
 
 class LogConfig(BaseModel):

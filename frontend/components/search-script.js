@@ -10,6 +10,19 @@ import {
     TOAST_STATUS
 } from "./constant.js";
 import { openInfoModal } from "./info-modal.js";
+import {
+    SEARCH_FAST_IDS,
+    applyFastScanPreset,
+    collectFastScanOptions,
+    formatFastScanOptionsSummary,
+    isFastScanMode,
+    loadFastScanPrefs,
+    saveFastScanPrefs,
+    updateFastScanOptionsPanel,
+    updateFastScanSummary,
+    updateScanModeBadge,
+    wireFastScanOptionToggles,
+} from "./fast-scan-options.js";
 
 
 // --- STATE MANAGEMENT ---
@@ -22,6 +35,7 @@ let lastFetchTotal = 0;
 let investigatorQuery = null; // { ip, port? } — IP investigator workflow
 let scan_state = false; // Track whether scanning is active
 let scanStatusTimer = null; // Store the interval timer
+let cachedScanConfig = null;
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {
@@ -53,6 +67,9 @@ async function loadScanConfigTooltip() {
     try {
         const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
         const config = response.data || {};
+        cachedScanConfig = config;
+        updateFastScanOptionsPanel(SEARCH_FAST_IDS, config);
+        updateScanModeBadge("scanModeBadge", config);
         const scanModeLabel = SCAN_MODE_TEXT[config.scan_mode] || "Full";
         const pebcLabel =
             config.scan_mode === "quick" && config.pebc !== null && config.pebc !== undefined && config.pebc !== ""
@@ -409,10 +426,27 @@ async function loadScanFolderOptions() {
     }
 }
 
-// Scan Popup
-document.getElementById("scanBtn").addEventListener("click", () => {
+document.getElementById("scanBtn").addEventListener("click", async () => {
     document.getElementById("scanModal").classList.remove("hidden");
+    if (!cachedScanConfig) {
+        try {
+            const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
+            cachedScanConfig = response.data || {};
+            updateFastScanOptionsPanel(SEARCH_FAST_IDS, cachedScanConfig);
+            updateScanModeBadge("scanModeBadge", cachedScanConfig);
+        } catch (_) {
+            /* panel stays hidden */
+        }
+    } else {
+        updateFastScanOptionsPanel(SEARCH_FAST_IDS, cachedScanConfig);
+    }
     loadScanFolderOptions();
+});
+
+document.getElementById("fastScanPresets")?.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-preset]");
+    if (!btn || !cachedScanConfig) return;
+    applyFastScanPreset(SEARCH_FAST_IDS, cachedScanConfig, btn.dataset.preset);
 });
 
 document.getElementById("closeModalBtn").addEventListener("click", () => {
@@ -561,11 +595,21 @@ async function scanFiles(targetFolder = null) {
     }
 
     try {
-        const params = targetFolder ? { folder: targetFolder } : {};
-        const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, null, { params });
+        const fastOpts = collectFastScanOptions(SEARCH_FAST_IDS, cachedScanConfig);
+        const body = {
+            folder: targetFolder || null,
+        };
+        if (fastOpts) {
+            body.fast_options = fastOpts;
+            saveFastScanPrefs(fastOpts);
+        }
+        const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, body);
         if (!apiResponse) {
             disappearScanLoadingSpinner();
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
+        }
+        if (isFastScanMode(cachedScanConfig) && fastOpts) {
+            showToast(TOAST_STATUS.SUCCESS, formatFastScanOptionsSummary(fastOpts));
         }
         startScanStatusPolling();
         //const timer = setInterval(async () => {
@@ -1046,7 +1090,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (copyAllBtn) {
         copyAllBtn.addEventListener("click", handleCopyAllPaths);
     }
-    // When DOM is ready, check current scan state and update UI
+    wireFastScanOptionToggles(SEARCH_FAST_IDS);
+    const saved = loadFastScanPrefs();
+    if (saved && cachedScanConfig) {
+        updateFastScanSummary(SEARCH_FAST_IDS, cachedScanConfig);
+    }
+    loadScanConfigTooltip();
     checkScanStateOnReady();
 });
 

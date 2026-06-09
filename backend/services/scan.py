@@ -15,6 +15,13 @@ from redis import Redis
 from .logger import get_logger
 from .context import AppContext, with_app_context
 from .config import ScanMode
+from .fastscan_options import (
+    FastScanDefaults,
+    build_fastscan_command,
+    merge_fast_options,
+    parse_fastscan_output,
+)
+from models.scan_options import FastScanUserOptions
 from .capture_info import get_capture_time_range_sync
 from .endpoint_extract import extract_endpoints_sync
 from .endpoint_index import (
@@ -298,7 +305,12 @@ class ScanService:
     }
 
     scan_cancel_event = Event()
-    scan_process: Dict[str, Optional[subprocess.Popen]] = {"tshark": None}
+    scan_process: Dict[str, Optional[subprocess.Popen]] = {
+        "tshark": None,
+        "fastscan": None,
+    }
+    active_fast_scan_options: Optional[FastScanUserOptions] = None
+    _last_protocol_fingerprint: Optional[str] = None
     
     async def should_process_file(
         self,
@@ -551,6 +563,9 @@ class ScanService:
                 file_mapping["capture_start"] = capture_start
             if capture_end is not None:
                 file_mapping["capture_end"] = capture_end
+            if self._last_protocol_fingerprint:
+                file_mapping["protocol_fingerprint"] = self._last_protocol_fingerprint
+            self._last_protocol_fingerprint = None
 
             # Write to Redis
             pipe = redis_client.pipeline()
@@ -697,12 +712,34 @@ class ScanService:
         await asyncio.to_thread(redis_client.lpush, SCAN_FAILURES_KEY, entry)
         await asyncio.to_thread(redis_client.ltrim, SCAN_FAILURES_KEY, 0, SCAN_FAILURES_MAX - 1)
 
-    def scan_wrapper(self, exclude_files=None, target_folder=None, *, context: AppContext = None):
+    @with_app_context
+    def scan_wrapper(
+        self,
+        exclude_files=None,
+        target_folder=None,
+        fast_options: Optional[FastScanUserOptions] = None,
+        *,
+        context: AppContext = None,
+    ):
         redis = context.redis_client
         if not redis:
             logger.error("Redis connection is not available. Scan aborted.")
             return
-        
+
+        fs = context.config.pcap.fast_scan
+        merged_fast = merge_fast_options(
+            FastScanDefaults(
+                output=fs.output,
+                sample_every=fs.sample_every,
+                max_packets=fs.max_packets,
+                bpf_filter=fs.bpf_filter,
+                emit_fingerprint=fs.emit_fingerprint,
+                ports_file=fs.ports_file,
+            ),
+            fast_options,
+        )
+        self.active_fast_scan_options = merged_fast
+
         scan_event = "scan.failed"
         try:
             # dirty the lex indexes
@@ -711,6 +748,12 @@ class ScanService:
             self.scan_status["state"] = ScanState.RUNNING
             self.scan_status["indexed_files"] = 0
             self.scan_status["message"] = "Scanning in progress..."
+            if context.config.pcap.scan_mode == ScanMode.FAST:
+                self.scan_status["fast_scan_options"] = merged_fast.model_dump(
+                    exclude_none=True
+                )
+            else:
+                self.scan_status.pop("fast_scan_options", None)
             logger.info("Background scan started.")
 
             result = asyncio.run(
@@ -741,6 +784,8 @@ class ScanService:
             self.scan_status["message"] = str(e)
             scan_event = "scan.failed"
         finally:
+            self.active_fast_scan_options = None
+            self.scan_status.pop("fast_scan_options", None)
             try:
                 from .webhooks import dispatch_scan_webhooks
 
@@ -1021,16 +1066,17 @@ class ScanService:
         pcap_file: str,
         excluded_protocols: Optional[set[str]] = None,
     ) -> Optional[Tuple[Dict[str, int], int]]:
-        """Fast protocol scan using fastscan binary."""
+        """Fast protocol scan using fastscan binary with per-scan user options."""
         scan_cancel_event = self.scan_cancel_event
         scan_process = self.scan_process
-        
+        self._last_protocol_fingerprint = None
+
         if not os.path.exists(pcap_file):
-            logger.error(f"fastscan binary not found at {pcap_file}. Please build it first.")
+            logger.error("PCAP file not found: %s", pcap_file)
             return None
-        
-        # /usr/local/bin/fastscan
-        command = ['fastscan', pcap_file]
+
+        options = self.active_fast_scan_options or FastScanUserOptions()
+        command = build_fastscan_command(pcap_file, options)
         
         try:
             process = subprocess.Popen(
@@ -1078,29 +1124,19 @@ class ScanService:
                 return None
             
             output = "".join(stdout_lines).strip()
-            
-            if not output:
+
+            parsed = parse_fastscan_output(
+                output,
+                excluded_protocols=excluded_protocols,
+            )
+            if parsed is None:
                 return {}, 0
-            
-            protocol_counts: Dict[str, int] = {}
-            packets_scanned = 0
-            
-            # Parse fastscan output: each line is "eth:ip:tcp:http" etc.
-            for line in output.splitlines():
-                if not line:
-                    continue
-                packets_scanned += 1
-                protocols = line.split(":")
-                
-                unique_protocols = set(protocols) - (excluded_protocols or set())
-                
-                for proto in unique_protocols:
-                    protocol_counts[proto] = protocol_counts.get(proto, 0) + 1
-            
-            return protocol_counts, packets_scanned
-        
+
+            self._last_protocol_fingerprint = parsed.protocol_fingerprint
+            return parsed.protocol_counts, parsed.packets_scanned
+
         except FileNotFoundError:
-            logger.error(f"fastscan not found at {pcap_file}. Please build it first.")
+            logger.error("fastscan binary not found in PATH")
             return None
         except Exception as e:
             logger.error(f"Unexpected error while analyzing {pcap_file} with fastscan: {e}")
