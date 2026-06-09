@@ -24,6 +24,13 @@ class QuickScanConfig(BaseModel):
     min_file_size: int | str = 0
     config_version: str = "v1"
 
+    @field_validator("pebc")
+    @classmethod
+    def validate_pebc(cls, v: float) -> float:
+        if v <= 0 or v > 1:
+            raise ValueError("quick_scan.pebc must be > 0 and <= 1")
+        return v
+
 
 class FastScanConfig(BaseModel):
     """Default fastscan options when the user does not override per scan."""
@@ -34,13 +41,6 @@ class FastScanConfig(BaseModel):
     bpf_filter: Optional[str] = None
     emit_fingerprint: bool = False
     ports_file: Optional[str] = None
-
-    @field_validator("pebc")
-    @classmethod
-    def validate_pebc(cls, v: float) -> float:
-        if v <= 0 or v > 1:
-            raise ValueError("quick_scan.pebc must be > 0 and <= 1")
-        return v
 
 class PcapConfig(BaseModel):
     root_directory: str = "/pcaps"

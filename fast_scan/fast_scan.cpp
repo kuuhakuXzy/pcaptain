@@ -13,6 +13,7 @@ static void print_usage(const char* prog) {
         << "  --max-packets N      Stop after N packets seen\n"
         << "  --bpf FILTER         libpcap BPF filter expression\n"
         << "  --fingerprint        Emit PCAPTAIN_FP line for duplicate hints\n"
+        << "  --endpoint-max-packets N  Collect IPs/ports from first N packets\n"
         << "  --ports-file PATH    Extra port→app lines: PORT l4proto appname\n";
 }
 
@@ -37,6 +38,8 @@ int main(int argc, char* argv[]) {
             settings.bpf_filter = argv[++i];
         } else if (strcmp(argv[i], "--ports-file") == 0 && i + 1 < argc) {
             settings.ports_file = argv[++i];
+        } else if (strcmp(argv[i], "--endpoint-max-packets") == 0 && i + 1 < argc) {
+            settings.endpoint_max_packets = static_cast<uint32_t>(atoi(argv[++i]));
         } else if (argv[i][0] == '-') {
             std::cerr << "Unknown option: " << argv[i] << "\n";
             print_usage(argv[0]);
@@ -102,7 +105,7 @@ int main(int argc, char* argv[]) {
         packets_seen += 1;
 
         if (process) {
-            scanner.handle_packet(header, packet, dlt);
+            scanner.handle_packet(header, packet, dlt, packets_seen);
         }
     }
 
@@ -110,6 +113,7 @@ int main(int argc, char* argv[]) {
 
     if (settings.summary_output) {
         accumulator.write_summary(sink, settings);
+        accumulator.write_endpoints(sink);
     }
     if (settings.emit_fingerprint) {
         accumulator.write_fingerprint(sink);

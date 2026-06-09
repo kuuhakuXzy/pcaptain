@@ -9,6 +9,7 @@ struct FastScanSettings {
     bool emit_fingerprint = false;
     uint32_t sample_every = 0;
     uint32_t max_packets = 0;
+    uint32_t endpoint_max_packets = 0;
     const char* bpf_filter = nullptr;
     const char* ports_file = nullptr;
 };

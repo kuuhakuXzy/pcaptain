@@ -35,6 +35,7 @@ def test_parse_summary_line():
     stdout = (
         "PCAPTAIN_SUMMARY packets_seen=1000 packets_scanned=100 sample_every=10 "
         "protocols=eth:100,ip:100,tcp:80,http:50\n"
+        "PCAPTAIN_ENDPOINTS ips=10.0.0.1,192.168.1.2 ports=80,443\n"
         "PCAPTAIN_FP v1|eth=100|http=50\n"
     )
     parsed = parse_fastscan_output(stdout)
@@ -43,3 +44,15 @@ def test_parse_summary_line():
     assert parsed.protocol_counts.get("http") == 50
     assert parsed.protocol_fingerprint is not None
     assert parsed.sampled is True
+    assert parsed.indexed_ips == {"10.0.0.1", "192.168.1.2"}
+    assert parsed.indexed_ports == {"80", "443"}
+
+
+def test_build_fastscan_command_endpoint_max_packets():
+    cmd = build_fastscan_command(
+        "/data/a.pcap",
+        FastScanUserOptions(output="summary"),
+        endpoint_max_packets=10000,
+    )
+    assert "--endpoint-max-packets" in cmd
+    assert "10000" in cmd

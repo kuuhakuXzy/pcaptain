@@ -10,6 +10,18 @@ from models.scan_options import FastScanUserOptions
 
 _SUMMARY_PREFIX = "PCAPTAIN_SUMMARY"
 _FP_PREFIX = "PCAPTAIN_FP"
+_ENDPOINTS_PREFIX = "PCAPTAIN_ENDPOINTS"
+
+
+@dataclass
+class ProtocolScanResult:
+    """Unified result from protocol scan (fast, full, or quick)."""
+
+    protocol_counts: Dict[str, int]
+    packets_scanned: int
+    indexed_ips: Optional[Set[str]] = None
+    indexed_ports: Optional[Set[str]] = None
+    protocol_fingerprint: Optional[str] = None
 
 
 @dataclass
@@ -19,6 +31,8 @@ class FastScanParseResult:
     packets_seen: Optional[int] = None
     protocol_fingerprint: Optional[str] = None
     sampled: bool = False
+    indexed_ips: Set[str] = field(default_factory=set)
+    indexed_ports: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -53,6 +67,8 @@ def merge_fast_options(
 def build_fastscan_command(
     pcap_file: str,
     options: FastScanUserOptions,
+    *,
+    endpoint_max_packets: Optional[int] = None,
 ) -> list[str]:
     cmd = ["fastscan"]
     if options.output == "lines":
@@ -63,6 +79,8 @@ def build_fastscan_command(
         cmd.extend(["--sample-every", str(options.sample_every)])
     if options.max_packets:
         cmd.extend(["--max-packets", str(options.max_packets)])
+    if endpoint_max_packets and endpoint_max_packets > 0:
+        cmd.extend(["--endpoint-max-packets", str(endpoint_max_packets)])
     if options.bpf_filter:
         cmd.extend(["--bpf", options.bpf_filter])
     if options.emit_fingerprint:
@@ -98,6 +116,24 @@ def _parse_summary_line(line: str) -> Tuple[Dict[str, int], int, Optional[int], 
     return counts, packets_scanned, packets_seen, sampled
 
 
+def _parse_endpoints_line(line: str) -> Tuple[Set[str], Set[str]]:
+    ips: Set[str] = set()
+    ports: Set[str] = set()
+    ips_m = re.search(r"\bips=([^\s]+)", line)
+    if ips_m and ips_m.group(1):
+        for part in ips_m.group(1).split(","):
+            part = part.strip()
+            if part:
+                ips.add(part)
+    ports_m = re.search(r"\bports=([^\s]+)", line)
+    if ports_m and ports_m.group(1):
+        for part in ports_m.group(1).split(","):
+            part = part.strip()
+            if part:
+                ports.add(part)
+    return ips, ports
+
+
 def _parse_lines(stdout: str, excluded: Optional[Set[str]]) -> Tuple[Dict[str, int], int]:
     protocol_counts: Dict[str, int] = {}
     packets_scanned = 0
@@ -123,12 +159,20 @@ def parse_fastscan_output(
 
     fingerprint: Optional[str] = None
     summary_line: Optional[str] = None
+    endpoints_line: Optional[str] = None
 
     for line in stdout.splitlines():
         if line.startswith(_FP_PREFIX):
             fingerprint = line.strip()
         elif line.startswith(_SUMMARY_PREFIX):
             summary_line = line.strip()
+        elif line.startswith(_ENDPOINTS_PREFIX):
+            endpoints_line = line.strip()
+
+    indexed_ips: Set[str] = set()
+    indexed_ports: Set[str] = set()
+    if endpoints_line:
+        indexed_ips, indexed_ports = _parse_endpoints_line(endpoints_line)
 
     if summary_line:
         counts, scanned, seen, sampled = _parse_summary_line(summary_line)
@@ -138,6 +182,8 @@ def parse_fastscan_output(
             packets_seen=seen,
             protocol_fingerprint=fingerprint,
             sampled=sampled,
+            indexed_ips=indexed_ips,
+            indexed_ports=indexed_ports,
         )
 
     counts, scanned = _parse_lines(stdout, excluded_protocols)
@@ -146,4 +192,6 @@ def parse_fastscan_output(
         packets_scanned=scanned,
         protocol_fingerprint=fingerprint,
         sampled=False,
+        indexed_ips=indexed_ips,
+        indexed_ports=indexed_ports,
     )
