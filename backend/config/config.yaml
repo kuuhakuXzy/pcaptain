@@ -33,3 +33,8 @@ catalog:
   endpoint_index_enabled: true
   endpoint_max_packets: 10000
   stats_cache_ttl_seconds: 300
+  metadata_cache_ttl_seconds: 3600
+  use_fastscan_packet_count: true
+  # Light catalog (fast mode): set when full protocol fidelity is not required
+  # light_sample_every: 10
+  # light_max_packets: 50000

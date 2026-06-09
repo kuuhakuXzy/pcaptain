@@ -13,17 +13,22 @@ import threading
 from redis import Redis
 
 from .logger import get_logger
-from .context import AppContext, with_app_context
+from .context import AppContext, resolve_app_context, with_app_context
 from .config import ScanMode
 from .fastscan_options import (
     FastScanDefaults,
     ProtocolScanResult,
     build_fastscan_command,
+    fastscan_reports_full_packet_count,
     merge_fast_options,
     parse_fastscan_output,
 )
 from models.scan_options import FastScanUserOptions
-from .capture_info import get_capture_time_range_sync
+from .pcap_metadata import get_pcap_metadata_sync, resolve_pcap_metadata
+from .tshark_protocol_stats import (
+    build_protocol_fingerprint,
+    get_protocol_counts_from_phs_sync,
+)
 from .endpoint_extract import extract_endpoints_sync
 from .endpoint_index import (
     add_endpoint_indexes,
@@ -217,43 +222,8 @@ async def get_all_protocols(redis: Redis):
 
 
 def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
-    command = ["capinfos", "-M", "-c", pcap_file]
-
-    try:
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "capinfos exited with error for %s: %s",
-                pcap_file,
-                result.stderr.strip(),
-            )
-            return None
-
-        match = re.search(
-            r"(?:Number of packets|Packets)\s*[:=]\s*(\d+)",
-            result.stdout,
-        )
-        if not match:
-            logger.error(
-                "Could not parse packet count from capinfos output for %s",
-                pcap_file,
-            )
-            return None
-
-        return int(match.group(1))
-
-    except FileNotFoundError:
-        logger.error("capinfos not found — please install it.")
-        return None
-    except Exception as e:
-        logger.error("Unexpected error while running capinfos on %s: %s", pcap_file, e)
-        return None
+    meta = get_pcap_metadata_sync(pcap_file, include_packet_count=True, include_time_range=False)
+    return meta.total_packets
 
 
 async def get_total_packets_from_pcap(pcap_file: str) -> Optional[int]:
@@ -542,11 +512,24 @@ class ScanService:
 
             protocols = sorted(list(protocol_data.keys()))
             download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
+            catalog_cfg = config.catalog
+
+            packets_seen_hint: Optional[int] = None
+            if (
+                catalog_cfg.use_fastscan_packet_count
+                and current_scan_mode == ScanMode.FAST
+                and protocol_result.packets_seen is not None
+                and self.active_fast_scan_options is not None
+                and fastscan_reports_full_packet_count(self.active_fast_scan_options)
+            ):
+                packets_seen_hint = protocol_result.packets_seen
 
             t_capinfos = time.perf_counter()
-            total_packets = await get_total_packets_from_pcap(file_path)
-            capture_start, capture_end = await asyncio.to_thread(
-                get_capture_time_range_sync, file_path
+            total_packets, capture_start, capture_end = await asyncio.to_thread(
+                resolve_pcap_metadata,
+                file_path,
+                packets_seen_hint=packets_seen_hint,
+                cache_ttl_seconds=catalog_cfg.metadata_cache_ttl_seconds,
             )
             self._add_timing("capinfos_ms", (time.perf_counter() - t_capinfos) * 1000)
 
@@ -563,7 +546,6 @@ class ScanService:
             )
             remove_endpoint_indexes(redis_client, file_hash, stored_before_index)
 
-            catalog_cfg = config.catalog
             ips: Set[str] = set()
             ports: Set[str] = set()
             if catalog_cfg.endpoint_index_enabled:
@@ -663,6 +645,7 @@ class ScanService:
         *,
         context: AppContext = None,
     ) -> dict:
+        context = resolve_app_context(context)
         if exclude_files is None:
             exclude_files = []
 
@@ -769,6 +752,7 @@ class ScanService:
         *,
         context: AppContext = None,
     ):
+        context = resolve_app_context(context)
         redis = context.redis_client
         if not redis:
             logger.error("Redis connection is not available. Scan aborted.")
@@ -786,6 +770,19 @@ class ScanService:
             ),
             fast_options,
         )
+        cat = context.config.catalog
+        if context.config.pcap.scan_mode == ScanMode.FAST:
+            light_updates: Dict[str, int] = {}
+            if cat.light_sample_every is not None and (
+                fast_options is None or fast_options.sample_every is None
+            ):
+                light_updates["sample_every"] = cat.light_sample_every
+            if cat.light_max_packets is not None and (
+                fast_options is None or fast_options.max_packets is None
+            ):
+                light_updates["max_packets"] = cat.light_max_packets
+            if light_updates:
+                merged_fast = merged_fast.model_copy(update=light_updates)
         self.active_fast_scan_options = merged_fast
         self._active_endpoint_max_packets = context.config.catalog.endpoint_max_packets
         self._reset_scan_timing()
@@ -910,6 +907,7 @@ class ScanService:
 
     @with_app_context
     def backfill_wrapper(self, *, context: AppContext = None):
+        context = resolve_app_context(context)
         redis = context.redis_client
         if not redis:
             logger.error("Redis connection is not available. Backfill aborted.")
@@ -1057,6 +1055,7 @@ class ScanService:
 
     @with_app_context
     def rebuild_searchindex_wrapper(self, *, context: AppContext = None):
+        context = resolve_app_context(context)
         redis = context.redis_client
         if not redis:
             logger.error("Redis connection is not available. Rebuild aborted.")
@@ -1093,6 +1092,7 @@ class ScanService:
 
     @with_app_context
     def __schedule_lex_rebuild__(self, delay_seconds: int = 10, *, context: AppContext = None):
+        context = resolve_app_context(context)
 
         def worker():
             redis = context.redis_client
@@ -1190,12 +1190,38 @@ class ScanService:
             if parsed is None:
                 return ProtocolScanResult({}, 0)
 
+            # Fastscan infers application protocols from well-known ports, which can
+            # disagree with Wireshark dissectors (e.g. TCP 548 labeled afp). Catalog
+            # counts and subset downloads use tshark display filters, so prefer phs.
+            protocol_counts = parsed.protocol_counts
+            protocol_fingerprint = parsed.protocol_fingerprint
+            phs_counts = get_protocol_counts_from_phs_sync(
+                pcap_file,
+                scan_cancel_event=scan_cancel_event,
+                scan_process=scan_process,
+            )
+            if phs_counts is not None:
+                if excluded_protocols:
+                    phs_counts = {
+                        k: v for k, v in phs_counts.items() if k not in excluded_protocols
+                    }
+                protocol_counts = phs_counts
+                protocol_fingerprint = build_protocol_fingerprint(phs_counts)
+            else:
+                logger.warning(
+                    "Falling back to fastscan protocol counts for %s; "
+                    "port-inferred protocols may not match tshark filters.",
+                    pcap_file,
+                )
+
             return ProtocolScanResult(
-                protocol_counts=parsed.protocol_counts,
+                protocol_counts=protocol_counts,
                 packets_scanned=parsed.packets_scanned,
                 indexed_ips=set(parsed.indexed_ips),
                 indexed_ports=set(parsed.indexed_ports),
-                protocol_fingerprint=parsed.protocol_fingerprint,
+                protocol_fingerprint=protocol_fingerprint,
+                packets_seen=parsed.packets_seen,
+                sampled=parsed.sampled,
             )
 
         except FileNotFoundError:
@@ -1467,12 +1493,14 @@ class ScanService:
 
 @with_app_context
 def get_scan_service(*, context: AppContext = None) -> ScanService:
+    context = resolve_app_context(context)
     if not hasattr(context, "_scan_service"):
         context._scan_service = ScanService()
     return context._scan_service
 
 @with_app_context
 async def rebuild_lex_sort_indexes(*, context: AppContext = None):
+    context = resolve_app_context(context)
     redis = context.redis_client
     if not redis:
         return

@@ -53,6 +53,7 @@ async def reindex_pcaps(
             exclude_files=exclude_files,
             target_folder=target,
             fast_options=fast_options,
+            context=context,
         ),
     )
     payload = {"status": "started", "folder": target}
@@ -81,7 +82,7 @@ async def backfill_total_packets_endpoint(
     loop = asyncio.get_event_loop()
     loop.run_in_executor(
         context.thread_executor,
-        lambda: scan_service.backfill_wrapper(),
+        lambda: scan_service.backfill_wrapper(context=context),
     )
     return JSONResponse(content={"status": "started"})
 
@@ -112,7 +113,7 @@ async def rebuild_searchindex_endpoint(
     loop = asyncio.get_event_loop()
     loop.run_in_executor(
         context.thread_executor,
-        lambda: scan_service.rebuild_searchindex_wrapper(),
+        lambda: scan_service.rebuild_searchindex_wrapper(context=context),
     )
     return JSONResponse(content={"status": "started"})
 

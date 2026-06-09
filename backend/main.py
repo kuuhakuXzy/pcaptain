@@ -57,7 +57,8 @@ async def scheduled_scan_loop():
                 await loop.run_in_executor(
                     context.thread_executor,
                     lambda: scan_service.scan_wrapper(
-                        exclude_files=None
+                        exclude_files=None,
+                        context=context,
                     ),
                 )
             else:
@@ -95,6 +96,7 @@ async def lifespan(app: FastAPI):
                     context.thread_executor,
                     lambda: scan_service.scan_wrapper(
                         exclude_files=None,
+                        context=context,
                     ),
                 )
             else:

@@ -129,6 +129,7 @@ async def reindex_folder(
             exclude_files=None,
             target_folder=folder,
             fast_options=body.fast_options,
+            context=context,
         ),
     )
     out = {"status": "started", "folder": folder}

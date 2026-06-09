@@ -7,9 +7,20 @@ import re
 import uuid
 from services.context import get_app_context, AppContext
 from services.scan import PCAP_FILE_KEY_PREFIX
+from services.pcap_metadata import get_pcap_metadata_sync
 
 router = APIRouter(tags=["Pcaps"])
 logger = get_logger(__name__)
+
+
+def _pcap_has_packets(filepath: str) -> bool:
+    """True when the capture contains at least one packet (not just a pcap header)."""
+    meta = get_pcap_metadata_sync(
+        filepath,
+        include_packet_count=True,
+        include_time_range=False,
+    )
+    return meta.total_packets is not None and meta.total_packets > 0
 
 
 @router.get(
@@ -67,7 +78,7 @@ async def download_pcap_by_hash(
             logger.error(f"Tshark display filter failed: {err}")
             raise HTTPException(status_code=400, detail=f"Invalid display filter: {err}")
 
-        if not os.path.exists(temp_filepath) or os.path.getsize(temp_filepath) == 0:
+        if not os.path.exists(temp_filepath) or not _pcap_has_packets(temp_filepath):
             raise HTTPException(status_code=404, detail=f"No packets found matching display filter '{filter}'")
 
     except HTTPException:
@@ -136,7 +147,7 @@ async def download_filtered_pcap(
             logger.error(f"Tshark filter failed: {stderr.decode()}")
             raise HTTPException(status_code=500, detail="Failed to filter pcap file.")
 
-        if not os.path.exists(temp_filepath) or os.path.getsize(temp_filepath) == 0:
+        if not os.path.exists(temp_filepath) or not _pcap_has_packets(temp_filepath):
             raise HTTPException(
                 status_code=404, detail=f"No packets found for protocol '{protocol}'"
             )
