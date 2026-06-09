@@ -22,6 +22,13 @@ class ProtocolScanResult:
     indexed_ips: Optional[Set[str]] = None
     indexed_ports: Optional[Set[str]] = None
     protocol_fingerprint: Optional[str] = None
+    packets_seen: Optional[int] = None
+    sampled: bool = False
+
+
+def fastscan_reports_full_packet_count(options: FastScanUserOptions) -> bool:
+    """True when fastscan reads the entire file (packets_seen == total packets)."""
+    return not options.max_packets
 
 
 @dataclass

@@ -60,6 +60,10 @@ class CatalogConfig(BaseModel):
     endpoint_index_enabled: bool = True
     endpoint_max_packets: int = 10000
     stats_cache_ttl_seconds: int = 300
+    metadata_cache_ttl_seconds: int = 3600
+    use_fastscan_packet_count: bool = True
+    light_sample_every: Optional[int] = None
+    light_max_packets: Optional[int] = None
 
 
 class AppConfig(BaseModel):

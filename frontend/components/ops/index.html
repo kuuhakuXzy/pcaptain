@@ -15,7 +15,9 @@
         <header class="ops-header">
             <h1><i class="fa fa-heartbeat"></i> PCAP Ops</h1>
             <nav>
-                <a href="/" class="nav-link"><i class="fa fa-search"></i> Search</a>
+                <a href="/" class="nav-link nav-link-home" title="Return to PCAP search">
+                    <i class="fa fa-arrow-left"></i> Back to main
+                </a>
                 <a href="/dashboard" class="nav-link"><i class="fa fa-bar-chart"></i> Dashboard</a>
                 <button type="button" id="opsRefreshBtn" class="primary-btn"><i class="fa fa-refresh"></i> Refresh</button>
             </nav>
@@ -115,6 +117,10 @@
             </section>
         </div>
     </div>
+
+    <a href="/" class="back-home-fab" title="Back to main" aria-label="Back to main">
+        <i class="fa fa-home"></i>
+    </a>
 
     <script src="../config.js"></script>
     <script type="module" src="../constant.js"></script>

@@ -55,6 +55,41 @@ nav {
     background: #5568d3;
 }
 
+.nav-link-home {
+    background: #4b5563;
+}
+
+.nav-link-home:hover {
+    background: #374151;
+}
+
+.back-home-fab {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #4b5563;
+    color: #fff;
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.back-home-fab:hover {
+    background: #374151;
+    transform: scale(1.05);
+}
+
+.back-home-fab i {
+    font-size: 20px;
+}
+
 .refresh-btn {
     background: #10b981;
     color: white;

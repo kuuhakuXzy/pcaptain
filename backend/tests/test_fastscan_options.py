@@ -31,6 +31,13 @@ def test_merge_fast_options_user_overrides_defaults():
     assert merged.bpf_filter == "tcp port 443"
 
 
+def test_parse_summary_packets_seen():
+    stdout = "PCAPTAIN_SUMMARY packets_seen=9999 packets_scanned=9999 protocols=tcp:1\n"
+    parsed = parse_fastscan_output(stdout)
+    assert parsed is not None
+    assert parsed.packets_seen == 9999
+
+
 def test_parse_summary_line():
     stdout = (
         "PCAPTAIN_SUMMARY packets_seen=1000 packets_scanned=100 sample_every=10 "

@@ -52,7 +52,16 @@ def get_app_context() -> AppContext:
         raise RuntimeError("AppContext not initialized")
     return _app_context
 
+
+def resolve_app_context(context: Optional[AppContext] = None) -> AppContext:
+    """Return injected context or the process-global AppContext."""
+    if context is not None:
+        return context
+    return get_app_context()
+
+
 from functools import wraps
+import inspect
 from inspect import signature
 from typing import Callable, TypeVar
 from typing_extensions import ParamSpec
@@ -67,9 +76,18 @@ def with_app_context(func: Callable[P, R]) -> Callable[P, R]:
             "The decorated function must have a 'context' parameter."
         )
 
+    if inspect.iscoroutinefunction(func):
+
+        @wraps(func)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            kwargs["context"] = resolve_app_context(kwargs.get("context"))
+            return await func(*args, **kwargs)
+
+        return async_wrapper  # type: ignore[return-value]
+
     @wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        if kwargs.get("context") is None:
-            kwargs["context"] = get_app_context()
+    def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        kwargs["context"] = resolve_app_context(kwargs.get("context"))
         return func(*args, **kwargs)
-    return wrapper
+
+    return sync_wrapper

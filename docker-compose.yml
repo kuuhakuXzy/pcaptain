@@ -26,7 +26,7 @@ services:
     ports:
       - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
     volumes:
-      - ./backend:/app/backend
+      - ./backend:/app
       - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}:ro"
       - "./backend/config/config.yaml:/app/config/config.yaml"
     environment:
@@ -38,7 +38,7 @@ services:
       - PUBLIC_URL=${BE_PUBLIC_URL}
       - WATCHFILES_FORCE_POLLING=true
     # using config/config.yaml instead for configuration
-    command: uvicorn backend.main:app --host 0.0.0.0 --port ${BE_INTERNAL_PORT} --reload --reload-dir /app/backend
+    command: uvicorn main:app --host 0.0.0.0 --port ${BE_INTERNAL_PORT} --reload --reload-dir /app
     networks:
       - app_network
 

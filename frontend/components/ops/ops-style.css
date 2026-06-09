@@ -32,12 +32,58 @@ body {
 }
 
 .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 6px;
     color: #7eb8ff;
     text-decoration: none;
+    border: 1px solid rgba(126, 184, 255, 0.35);
+    font-size: 0.9rem;
 }
 
 .nav-link:hover {
-    text-decoration: underline;
+    background: rgba(126, 184, 255, 0.12);
+    text-decoration: none;
+}
+
+.nav-link-home {
+    color: #e7ecf3;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.nav-link-home:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.back-home-fab {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.12);
+    color: #e7ecf3;
+    text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    transition: background 0.2s, transform 0.2s;
+}
+
+.back-home-fab:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+}
+
+.back-home-fab i {
+    font-size: 20px;
 }
 
 .ops-fast-notice {
