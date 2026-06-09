@@ -36,6 +36,7 @@
             <button id="searchBtn">Search</button>
             <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
             <button id="scanBtn">Scan</button>
+            <span id="scanModeBadge" class="scan-mode-badge hidden" title="Server scan mode"></span>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
@@ -201,6 +202,49 @@
                         <option value="">— Entire tree —</option>
                     </select>
                 </label>
+                <p id="fastScanNotActiveNotice" class="scan-modal-hint fast-scan-not-active hidden">
+                    Fast scan options are off — server is not in <strong>fast</strong> mode. Set <code>pcap.scan_mode: fast</code> in config (then rebuild/restart backend) to apply per-scan options to every PCAP in a job.
+                </p>
+                <div id="fastScanOptionsPanel" class="fast-scan-options hidden">
+                    <h3>Fast scan options</h3>
+                    <p class="scan-modal-hint">Applies to <strong>every</strong> PCAP in this scan job (.pcap, .pcapng, .cap). Not per file type.</p>
+                    <div class="fast-scan-presets" id="fastScanPresets">
+                        <span class="fast-preset-label">Presets:</span>
+                        <button type="button" class="fast-preset-btn" data-preset="default">Default</button>
+                        <button type="button" class="fast-preset-btn" data-preset="large">Large PCAP</button>
+                        <button type="button" class="fast-preset-btn" data-preset="dup">Dup check</button>
+                    </div>
+                    <label class="fast-opt-row">
+                        <span>Output</span>
+                        <select id="fastOutputSelect">
+                            <option value="summary">Summary (recommended, fast)</option>
+                            <option value="lines">Per-packet lines (legacy)</option>
+                        </select>
+                    </label>
+                    <label class="fast-opt-row fast-opt-check">
+                        <input type="checkbox" id="fastSampleEnable" />
+                        <span>Sample every Nth packet</span>
+                        <input type="number" id="fastSampleEvery" min="2" max="1000000" value="10" disabled />
+                    </label>
+                    <label class="fast-opt-row fast-opt-check">
+                        <input type="checkbox" id="fastMaxPacketsEnable" />
+                        <span>Max packets to read</span>
+                        <input type="number" id="fastMaxPackets" min="1000" max="100000000" value="500000" disabled />
+                    </label>
+                    <label class="fast-opt-row">
+                        <span>BPF filter (optional)</span>
+                        <input type="text" id="fastBpfFilter" placeholder="e.g. tcp port 443 or host 10.0.0.0/8" />
+                    </label>
+                    <label class="fast-opt-row fast-opt-check">
+                        <input type="checkbox" id="fastFingerprintEnable" />
+                        <span>Protocol fingerprint (duplicate hints)</span>
+                    </label>
+                    <label class="fast-opt-row">
+                        <span>Custom ports file (optional)</span>
+                        <input type="text" id="fastPortsFile" placeholder="Path inside backend container" />
+                    </label>
+                    <p id="fastScanSummary" class="fast-scan-summary hidden" aria-live="polite"></p>
+                </div>
                 <div class="button-group">
                     <button id="scanAllBtn" class="action-btn">Start scan</button>
                     <input type="file" id="directoryPicker" webkitdirectory multiple hidden>

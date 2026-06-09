@@ -51,9 +51,26 @@ Usage:
 
 ```bash
 ./fastscan path/to/file.pcap > output.txt
+./fastscan --summary --sample-every 10 --fingerprint path/to/file.pcap
+./fastscan --bpf "tcp port 443" --summary path/to/file.pcap
+./fastscan --ports-file /path/to/ports.overlay --summary path/to/file.pcap
 ```
 
-Each line of `output.txt` is a colon-separated protocol path detected in a packet (examples: `eth:ip:tcp:http`, `ipv6:udp:dns`). For summaries, run `sort | uniq -c` on the output.
+### User-selectable options (pcaptain UI / API)
+
+| Option | Flag | Purpose |
+|--------|------|---------|
+| Summary output | `--summary` (default) | One `PCAPTAIN_SUMMARY` line instead of per-packet lines |
+| Legacy lines | `--lines` | Per-packet paths (slow on large PCAPs) |
+| Sampling | `--sample-every N` | Only process every Nth packet |
+| Cap | `--max-packets N` | Stop after N packets |
+| BPF filter | `--bpf 'expr'` | libpcap filter before parse |
+| Fingerprint | `--fingerprint` | Extra `PCAPTAIN_FP` line for duplicate detection |
+| Port overrides | `--ports-file PATH` | Lines: `PORT l4proto appname` (see `ports.overlay.example`) |
+
+In the Search page scan modal, these appear when server `scan_mode` is `fast`. POST `/reindex` with JSON body `{ "folder": "...", "fast_options": { ... } }`.
+
+Each line of legacy output is a colon-separated protocol path (examples: `eth:ip:tcp:http`). Summary mode prints counts on one line.
 
 Inference (well-known ports)
 ----------------------------

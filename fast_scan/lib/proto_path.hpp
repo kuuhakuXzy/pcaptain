@@ -36,6 +36,17 @@ public:
 
     bool empty() const { return _len == 0; }
 
+    static constexpr size_t max_length() { return MAX_LEN; }
+
+    // Copy colon-separated path into dst; returns length (no NUL if buffer full).
+    size_t copy_to(char* dst, size_t cap) const {
+        if (!dst || cap == 0) return 0;
+        size_t n = (_len < cap - 1) ? _len : cap - 1;
+        memcpy(dst, _buf, n);
+        dst[n] = '\0';
+        return n;
+    }
+
 private:
     static constexpr size_t MAX_LEN = 64;
 

@@ -1,0 +1,5 @@
+# Optional port → application overrides for fastscan (--ports-file).
+# Format per line: PORT L4PROTO APPNAME
+# Example:
+# 8443 tcp https-alt
+# 9090 tcp prometheus

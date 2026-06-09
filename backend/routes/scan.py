@@ -6,6 +6,7 @@ from fastapi import Depends, Query, Request, HTTPException
 from fastapi.responses import JSONResponse
 import asyncio
 
+from models.scan_options import ReindexRequest
 from services.scan import BackfillState, RebuildSearchIndexState, ScanState, get_scan_service
 from services.logger import get_logger
 
@@ -17,6 +18,7 @@ logger = get_logger(__name__)
 @router.post("/reindex", summary="Rescan pcap directories and rebuild the index")
 async def reindex_pcaps(
     request: Request,
+    body: Optional[ReindexRequest] = None,
     exclude: Optional[List[str]] = Query(None),
     folder: Optional[str] = Query(
         None, description="Scan only this immediate subfolder under PCAP root"
@@ -32,17 +34,31 @@ async def reindex_pcaps(
         )
     scan_service.scan_cancel_event.clear()
 
-    target = folder.strip() if folder else None
+    target = None
+    fast_options = None
+    exclude_files = exclude or []
+
+    if body:
+        target = (body.folder or "").strip() or None
+        fast_options = body.fast_options
+        if body.exclude:
+            exclude_files = body.exclude
+    if folder and not target:
+        target = folder.strip() or None
 
     loop = asyncio.get_event_loop()
     loop.run_in_executor(
         context.thread_executor,
         lambda: scan_service.scan_wrapper(
-            exclude_files=exclude,
+            exclude_files=exclude_files,
             target_folder=target,
+            fast_options=fast_options,
         ),
     )
-    return JSONResponse(content={"status": "started", "folder": target})
+    payload = {"status": "started", "folder": target}
+    if fast_options is not None:
+        payload["fast_options"] = fast_options.model_dump(exclude_none=True)
+    return JSONResponse(content=payload)
 
 
 @router.get("/scan-status")
@@ -128,11 +144,28 @@ async def cancel_scan():
 async def scan_config(*, context: AppContext = Depends(get_app_context)):
     """Expose current runtime scan configuration."""
     pcap_config = context.config.pcap
+    fs = pcap_config.fast_scan
     return {
         "scan_mode": pcap_config.scan_mode.value,
         "pebc": pcap_config.quick_scan.pebc if pcap_config.scan_mode == ScanMode.QUICK else None,
         "min_file_size": pcap_config.quick_scan.min_file_size if pcap_config.scan_mode == ScanMode.QUICK else None,
         "config_version": pcap_config.quick_scan.config_version,
+        "fast_scan_defaults": {
+            "output": fs.output,
+            "sample_every": fs.sample_every,
+            "max_packets": fs.max_packets,
+            "bpf_filter": fs.bpf_filter,
+            "emit_fingerprint": fs.emit_fingerprint,
+            "ports_file": fs.ports_file,
+        },
+        "fast_scan_option_help": {
+            "output": "summary (fast, one line) or lines (legacy, per packet)",
+            "sample_every": "Process every Nth packet only",
+            "max_packets": "Stop after N packets",
+            "bpf_filter": "libpcap filter, e.g. host 10.0.0.1 and tcp",
+            "emit_fingerprint": "Store PCAPTAIN_FP for duplicate detection",
+            "ports_file": "Extra port→app mappings file",
+        },
     }
 
 @router.post(

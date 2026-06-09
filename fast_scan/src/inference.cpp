@@ -327,3 +327,36 @@ void init_port_table(PortTable& ports) {
     // ports.set(6513,{P::TCP }, "netconf"); // over tls
     ports.set(6514,{P::TCP }, "syslog"); // over tls
 };
+
+#include <cstdio>
+#include <cstring>
+#include <strings.h>
+
+static L4Proto parse_l4_token(const char* tok) {
+    if (!tok) return L4Proto::TCP;
+    if (strcasecmp(tok, "udp") == 0) return L4Proto::UDP;
+    if (strcasecmp(tok, "sctp") == 0) return L4Proto::SCTP;
+    if (strcasecmp(tok, "dccp") == 0) return L4Proto::DCCP;
+    return L4Proto::TCP;
+}
+
+bool apply_ports_file(PortTable& ports, const char* path) {
+    if (!path || !*path) return false;
+
+    FILE* fp = fopen(path, "r");
+    if (!fp) return false;
+
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#' || line[0] == '\n') continue;
+        unsigned port = 0;
+        char l4[16] = {};
+        char app[64] = {};
+        if (sscanf(line, " %u %15s %63s", &port, l4, app) != 3) continue;
+        if (port > 65535) continue;
+        ports.set(static_cast<uint16_t>(port), {parse_l4_token(l4)}, app);
+    }
+
+    fclose(fp);
+    return true;
+}
