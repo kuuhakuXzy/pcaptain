@@ -16,6 +16,7 @@ const API_PATH = Object.freeze({
     STATS_PROTOCOLS_PATH: "stats/protocols",
     STATS_DIRECTORIES_PATH: "stats/directories",
     STATS_CO_OCCURRENCE_PATH: "stats/co-occurrence",
+    STATS_TOP_TALKERS_PATH: "stats/top-talkers",
     INDEX_EXPORT_PATH: "index/export",
     INDEX_IMPORT_PATH: "index/import",
     WEBHOOKS_PATH: "webhooks",

@@ -9,7 +9,9 @@ from collections import defaultdict
 from redis import Redis
 
 from services.catalog_constants import (
+    IP_INDEX_PREFIX,
     PCAP_FILE_KEY_PREFIX,
+    PORT_INDEX_PREFIX,
     PROTOCOL_INDEX_PREFIX,
     STATS_SUMMARY_KEY,
 )
@@ -109,3 +111,45 @@ async def get_co_occurrence_for_protocol(
 
     ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
     return {"protocol": proto, "co_occurring": dict(ranked)}
+
+
+def _index_key_label(key: str | bytes, prefix: str) -> str:
+    text = key.decode() if isinstance(key, bytes) else key
+    needle = f"{prefix}:"
+    if text.startswith(needle):
+        return text[len(needle) :]
+    return text.rsplit(":", 1)[-1]
+
+
+async def _top_index_by_cardinality(
+    redis: Redis, prefix: str, top: int
+) -> dict[str, int]:
+    """Rank IP or port index keys by how many PCAP files reference them."""
+    counts: list[tuple[str, int]] = []
+    cursor = 0
+    while True:
+        cursor, keys = await asyncio.to_thread(
+            redis.scan,
+            cursor=cursor,
+            match=f"{prefix}:*",
+            count=500,
+        )
+        for key in keys:
+            card = await asyncio.to_thread(redis.scard, key)
+            if card <= 0:
+                continue
+            label = _index_key_label(key, prefix)
+            if label:
+                counts.append((label, card))
+        if cursor == 0:
+            break
+    ranked = sorted(counts, key=lambda x: x[1], reverse=True)[:top]
+    return dict(ranked)
+
+
+async def get_top_talkers(redis: Redis, top: int = 15) -> dict:
+    ips, ports = await asyncio.gather(
+        _top_index_by_cardinality(redis, IP_INDEX_PREFIX, top),
+        _top_index_by_cardinality(redis, PORT_INDEX_PREFIX, top),
+    )
+    return {"top_ips": ips, "top_ports": ports}
