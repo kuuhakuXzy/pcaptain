@@ -642,13 +642,95 @@ nav {
     margin-bottom: 10px;
 }
 
-.cooccurrence-controls input {
+.cooccurrence-input-wrap {
+    position: relative;
     flex: 1;
+}
+
+.cooccurrence-controls input {
+    width: 100%;
     padding: 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+}
+
+.suggestion-box {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    z-index: 20;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 13px;
+}
+
+.suggestion-item {
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+    color: #333;
+}
+
+.suggestion-item:hover,
+.suggestion-item.highlight {
+    background: #f0f4ff;
+}
+
+.suggestion-box.hidden {
+    display: none;
+}
+
+.catalog-banner {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.catalog-banner.catalog-banner-warning {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #92400e;
+}
+
+.catalog-banner.hidden {
+    display: none;
 }
 
 .catalog-cooccurrence {
     grid-column: 1 / -1;
+}
+
+.catalog-top-talkers {
+    grid-column: 1 / -1;
+}
+
+.catalog-hint {
+    font-size: 12px;
+    color: #6b7280;
+    margin: -4px 0 10px;
+}
+
+.top-talkers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.top-talkers-grid h4 {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 8px;
 }

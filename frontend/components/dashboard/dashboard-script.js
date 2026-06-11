@@ -1,13 +1,98 @@
-import { SERVER, API_PATH } from "../constant.js";
+import { API_PATH, MIN_QUERY_LENGTH, SERVER } from "../constant.js";
 
 const loadingIndicator = document.getElementById('loadingIndicator');
 const errorMessage = document.getElementById('errorMessage');
+const catalogBanner = document.getElementById('catalogBanner');
 const dashboardContent = document.getElementById('dashboardContent');
 const refreshBtn = document.getElementById('refreshBtn');
 const lastUpdatedEl = document.getElementById('lastUpdated');
+const cooccurrenceInput = document.getElementById('cooccurrenceProtocol');
+const cooccurrenceSuggestionBox = document.getElementById('cooccurrenceSuggestionBox');
 
-let charts = {};
+let dashboardCharts = {};
+let catalogCharts = {};
 let pollInterval = null;
+
+function showCatalogBanner(message, { warning = false } = {}) {
+    if (!catalogBanner) return;
+    if (!message) {
+        catalogBanner.classList.add('hidden');
+        catalogBanner.textContent = '';
+        return;
+    }
+    catalogBanner.textContent = message;
+    catalogBanner.classList.toggle('catalog-banner-warning', warning);
+    catalogBanner.classList.remove('hidden');
+}
+
+function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hideCooccurrenceSuggestion() {
+    if (!cooccurrenceSuggestionBox) return;
+    cooccurrenceSuggestionBox.classList.add('hidden');
+    cooccurrenceSuggestionBox.innerHTML = '';
+}
+
+async function fetchCooccurrenceSuggestion(input) {
+    try {
+        const res = await axios.get(`${SERVER}${API_PATH.SEARCH_SUGGESTION}`, {
+            params: { q: input }
+        });
+        renderCooccurrenceSuggestion(input, res.data);
+    } catch (err) {
+        console.error('Co-occurrence suggestion failed:', err);
+    }
+}
+
+function protocolSuggestionsOnly(items) {
+    return (items || []).filter(
+        (item) => !/\.(pcap|pcapng|cap)$/i.test(item) && !item.includes('/')
+    );
+}
+
+function renderCooccurrenceSuggestion(input, data) {
+    if (!cooccurrenceSuggestionBox) return;
+    const suggestions = protocolSuggestionsOnly(data);
+    if (!suggestions.length) {
+        hideCooccurrenceSuggestion();
+        return;
+    }
+    cooccurrenceSuggestionBox.innerHTML = '';
+    suggestions.forEach((item) => {
+        const div = document.createElement('div');
+        div.className = 'suggestion-item';
+        const regex = new RegExp(`(${escapeRegExp(input)})`, 'gi');
+        div.innerHTML = item.replace(regex, '<strong>$1</strong>');
+        div.addEventListener('click', () => {
+            if (cooccurrenceInput) cooccurrenceInput.value = item;
+            hideCooccurrenceSuggestion();
+            loadCooccurrence();
+        });
+        cooccurrenceSuggestionBox.appendChild(div);
+    });
+    cooccurrenceSuggestionBox.classList.remove('hidden');
+}
+
+function renderKeyCountTable(containerId, entries, emptyLabel) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    if (!entries.length) {
+        container.innerHTML = `<div class="table-row"><span class="table-cell-name">${emptyLabel}</span></div>`;
+        return;
+    }
+    entries.forEach(([name, count]) => {
+        const row = document.createElement('div');
+        row.className = 'table-row';
+        row.innerHTML = `
+            <span class="table-cell-name">${name}</span>
+            <span class="table-cell-count">${count}</span>
+        `;
+        container.appendChild(row);
+    });
+}
 
 function formatBytes(bytes) {
     bytes = parseInt(bytes, 10) || 0;
@@ -59,6 +144,23 @@ function renderCooccurrenceTable(data) {
     });
 }
 
+async function loadTopTalkers() {
+    try {
+        const res = await axios.get(`${SERVER}${API_PATH.STATS_TOP_TALKERS_PATH}`, {
+            params: { top: 12 }
+        });
+        const ips = Object.entries(res.data?.top_ips || {});
+        const ports = Object.entries(res.data?.top_ports || {});
+        renderKeyCountTable('topIpsTable', ips, 'No IP index data (run endpoint backfill)');
+        renderKeyCountTable('topPortsTable', ports, 'No port index data');
+    } catch (err) {
+        const detail = err.response?.data?.detail || err.message || 'Failed to load top talkers';
+        renderKeyCountTable('topIpsTable', [], detail);
+        renderKeyCountTable('topPortsTable', [], '—');
+        throw err;
+    }
+}
+
 async function loadCatalogStats(refresh = false) {
     try {
         const overviewRes = await axios.get(`${SERVER}${API_PATH.STATS_OVERVIEW_PATH}`, {
@@ -76,14 +178,14 @@ async function loadCatalogStats(refresh = false) {
             params: { top: 12, refresh }
         });
         const protocols = protoRes.data?.protocols || {};
-        if (charts.catalogProtocolsChart) {
-            charts.catalogProtocolsChart.destroy();
+        if (catalogCharts.catalogProtocolsChart) {
+            catalogCharts.catalogProtocolsChart.destroy();
         }
         const labels = Object.keys(protocols);
         const values = labels.map((k) => protocols[k]);
         const ctx = document.getElementById("catalogProtocolsChart");
         if (ctx && labels.length) {
-            charts.catalogProtocolsChart = new Chart(ctx.getContext("2d"), {
+            catalogCharts.catalogProtocolsChart = new Chart(ctx.getContext("2d"), {
                 type: "bar",
                 data: {
                     labels,
@@ -102,12 +204,28 @@ async function loadCatalogStats(refresh = false) {
                     scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
                 }
             });
+        } else if (ctx) {
+            const context = ctx.getContext("2d");
+            context.clearRect(0, 0, ctx.width, ctx.height);
         }
 
         const dirRes = await axios.get(`${SERVER}${API_PATH.STATS_DIRECTORIES_PATH}`);
         renderCatalogDirectoryTable(dirRes.data?.directories || overview.directory_distribution);
+        await loadTopTalkers();
+        showCatalogBanner(null);
     } catch (err) {
         console.error("Catalog stats failed:", err);
+        const detail = err.response?.data?.detail;
+        const message = typeof detail === 'string'
+            ? detail
+            : (detail ? JSON.stringify(detail) : (err.message || 'Catalog stats unavailable'));
+        const status = err.response?.status;
+        showCatalogBanner(
+            status === 503
+                ? `Catalog unavailable: ${message}. Check Redis and try Catalog refresh.`
+                : `Catalog error: ${message}`,
+            { warning: status === 503 }
+        );
     }
 }
 
@@ -140,8 +258,25 @@ document.addEventListener('DOMContentLoaded', () => {
         loadCatalogStats(true);
     });
     document.getElementById("cooccurrenceBtn")?.addEventListener("click", loadCooccurrence);
-    document.getElementById("cooccurrenceProtocol")?.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") loadCooccurrence();
+    cooccurrenceInput?.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            hideCooccurrenceSuggestion();
+            loadCooccurrence();
+        }
+        if (e.key === "Escape") hideCooccurrenceSuggestion();
+    });
+    cooccurrenceInput?.addEventListener("input", async () => {
+        const input = cooccurrenceInput.value.toLowerCase().trim();
+        if (input.length < MIN_QUERY_LENGTH) {
+            hideCooccurrenceSuggestion();
+            return;
+        }
+        await fetchCooccurrenceSuggestion(input);
+    });
+    document.addEventListener("click", (e) => {
+        if (!cooccurrenceInput?.contains(e.target) && !cooccurrenceSuggestionBox?.contains(e.target)) {
+            hideCooccurrenceSuggestion();
+        }
     });
 });
 
@@ -218,9 +353,9 @@ function renderDashboard(data) {
     // Update total files
     document.getElementById('totalFiles').textContent = data.total_files || 0;
 
-    // Destroy existing charts
-    Object.values(charts).forEach(chart => chart.destroy());
-    charts = {};
+    // Destroy dashboard charts only (catalog charts are managed separately)
+    Object.values(dashboardCharts).forEach(chart => chart.destroy());
+    dashboardCharts = {};
 
     // Render file system tables
     renderDirectoryTable(data.directory_distribution || {});
@@ -230,27 +365,21 @@ function renderDashboard(data) {
     renderScanModeStats(data.scan_mode_distribution || {}, data.total_files || 0);
 
     // Render charts
-    charts.sizeDistChart = createBarChart(
+    dashboardCharts.sizeDistChart = createBarChart(
         'sizeDistChart',
         data.pcap_size_distribution,
         'Files',
         ['<10MB', '10-100MB', '100MB-1GB', '>1GB']
     );
 
-    charts.packetDistChart = createBarChart(
+    dashboardCharts.packetDistChart = createBarChart(
         'packetDistChart',
         data.packet_count_distribution,
         'Files',
         ['0', '<1k', '1k-100k', '>100k']
     );
 
-    charts.protocolPresenceChart = createHorizontalBarChart(
-        'protocolPresenceChart',
-        data.protocol_presence_distribution,
-        'Files'
-    );
-
-    charts.diversityChart = createPieChart(
+    dashboardCharts.diversityChart = createPieChart(
         'diversityChart',
         data.protocol_diversity_distribution,
         'Protocol Count'
@@ -260,19 +389,19 @@ function renderDashboard(data) {
     console.log('combo data:', comboData);
     console.log('combo keys:', Object.keys(comboData));
 
-    charts.protocolComboChart = createProtocolComboPieChart(
+    dashboardCharts.protocolComboChart = createProtocolComboPieChart(
         'protocolComboChart',
         comboData
     );
 
-    charts.ageDistChart = createBarChart(
+    dashboardCharts.ageDistChart = createBarChart(
         'ageDistChart',
         data.file_age_distribution,
         'Files',
         ['<24h', '1-7d', '7-30d', '>30d']
     );
 
-    charts.sizePerPacketChart = createBarChart(
+    dashboardCharts.sizePerPacketChart = createBarChart(
         'sizePerPacketChart',
         data.size_per_packet_distribution,
         'Files',

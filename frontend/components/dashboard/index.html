@@ -34,6 +34,7 @@
         </div>
 
         <div id="errorMessage" class="error-message hidden"></div>
+        <div id="catalogBanner" class="catalog-banner hidden" role="alert"></div>
 
         <div id="dashboardContent" class="dashboard-content hidden">
             <div class="stats-overview">
@@ -77,21 +78,33 @@
                     <div class="catalog-cooccurrence">
                         <h3>Co-occurrence</h3>
                         <div class="cooccurrence-controls">
-                            <input id="cooccurrenceProtocol" type="text" placeholder="protocol e.g. http" />
+                            <div class="cooccurrence-input-wrap">
+                                <input id="cooccurrenceProtocol" type="text" placeholder="protocol e.g. http"
+                                    autocomplete="off" spellcheck="false" />
+                                <div id="cooccurrenceSuggestionBox" class="suggestion-box hidden"></div>
+                            </div>
                             <button type="button" id="cooccurrenceBtn" class="refresh-btn">Load</button>
                         </div>
                         <div id="cooccurrenceResults" class="data-table"></div>
+                    </div>
+                    <div class="catalog-top-talkers">
+                        <h3>Top talkers</h3>
+                        <p class="catalog-hint">IPs and ports appearing in the most indexed captures.</p>
+                        <div class="top-talkers-grid">
+                            <div>
+                                <h4>Top IPs</h4>
+                                <div id="topIpsTable" class="data-table"></div>
+                            </div>
+                            <div>
+                                <h4>Top ports</h4>
+                                <div id="topPortsTable" class="data-table"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="stats-grid">
-                <!-- Protocol Presence -->
-                <div class="stat-card large">
-                    <h2>Protocol Presence</h2>
-                    <canvas id="protocolPresenceChart"></canvas>
-                </div>
-                
                 <!-- File Size Distribution -->
                 <div class="stat-card">
                     <h2>File Size Distribution</h2>
