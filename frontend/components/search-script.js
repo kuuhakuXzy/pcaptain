@@ -648,7 +648,7 @@ async function scanFiles(targetFolder = null) {
             body.fast_options = fastOpts;
             saveFastScanPrefs(fastOpts);
         }
-        const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, body);
+        // const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, body);
         startTimer();
         const params = targetFolder ? { folder: targetFolder } : {};
         const apiResponse = await axios.post(SERVER + API_PATH.PCAP_REINDEX_PATH, null, { params });
@@ -715,6 +715,7 @@ async function fetchFiles() {
     try {
         displaySearchLoadingSpinner();
         startTimer();
+        const search = document.getElementById("searchInput").value.trim();
 
         const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
 
