@@ -542,7 +542,7 @@ async function fetchFiles() {
 
     } catch (err) {
         disappearSearchLoadingSpinner();
-        st
+        stopTimer();
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error while searching files");
     }

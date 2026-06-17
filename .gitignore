@@ -4,4 +4,8 @@ pcaps/
 # ENV file
 .env
 
+# Python cache
+backend/__pycache__/
+
+
 AGENTS.md
