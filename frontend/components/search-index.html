@@ -30,6 +30,10 @@
 <body>
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
+        <div id="timeContainer" style="display: none; margin-bottom: 10px; font-weight: bold; color: #555;">
+            <i class="fa fa-clock-o"></i> Execution Time: <span id="timer">0</span>s
+            <!-- new div to show the total time -->
+        </div>
         <div class="search-box">
             <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
             <div id="suggestionBox" class="suggestion-box hidden"></div>
