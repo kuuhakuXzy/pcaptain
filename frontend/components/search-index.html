@@ -25,6 +25,14 @@
             console.error('Failed to load dynamic fragments', err);
         });
     </script>
+        <script>
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme) {
+            document.documentElement.setAttribute("data-theme", savedTheme);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.setAttribute("data-theme", "dark");
+        }
+    </script>
 </head>
 
 <body>
@@ -38,6 +46,7 @@
             <button id="scanBtn">Scan</button>
             <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
             <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
+            <button id="themeToggle" title="Dark/Light Mode" class="page-btn"><i class="fa fa-moon-o"></i></button>
             <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                 <i class="fa fa-bar-chart"></i>
             </button>
@@ -130,6 +139,32 @@
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
     <script type="module" src="search-script.js"></script>
+        <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const toggleBtn = document.getElementById("themeToggle");
+            if (!toggleBtn) return;
+
+            const icon = toggleBtn.querySelector("i");
+            const setIcon = (theme) => {
+                if (theme === "dark") {
+                    icon.className = "fa fa-sun-o";
+                } else {
+                    icon.className = "fa fa-moon-o";
+                }
+            };
+
+            setIcon(document.documentElement.getAttribute("data-theme"));
+
+            toggleBtn.addEventListener("click", () => {
+                const currentTheme = document.documentElement.getAttribute("data-theme");
+                const newTheme = currentTheme === "dark" ? "light" : "dark";
+
+                document.documentElement.setAttribute("data-theme", newTheme);
+                localStorage.setItem("theme", newTheme);
+                setIcon(newTheme);
+            });
+        });
+    </script>
 </body>
 
 </html>
