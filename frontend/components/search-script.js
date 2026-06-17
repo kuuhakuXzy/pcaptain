@@ -20,6 +20,7 @@ let currentDescending = false;
 let currentFiles = []; // Store current page's files for copy functionality
 let scan_state = false; // Track whether scanning is active
 let scanStatusTimer = null; // Store the interval timer
+let timerInterval = null; // Time variable that a fuction needs to operate it's logic
 
 // --- UI HELPERS ---
 function displaySearchLoadingSpinner() {
@@ -30,6 +31,41 @@ function displaySearchLoadingSpinner() {
         spinner.classList.add("spinner-search-visible");
     }
     if(searchBtn) searchBtn.style.display = "none";
+}
+
+function startTimer() { // Functions that starts the timer
+    const timerElement = document.getElementById("timer");
+    const timeContainer = document.getElementById("timeContainer")
+
+    let startTime = Date.now();
+    timerElement.innerText = "0.0";
+    timeContainer.style.display = "block";
+    // console.log("Timer started");
+
+    if (timerInterval)
+        clearInterval(timerInterval);
+
+    timerInterval = setInterval(() => {
+        let secondsPassed = ((Date.now() - startTime) / 1000).toFixed(1);
+        // this code ensure that even if the browser gets delayed, it wont affect the timer, i guess..., i dont have pcap file large enough to test my theory lol(and the timer is rounded btw)
+        timerElement.innerText = secondsPassed;
+        console.log(`Waiting: ${secondsPassed} secs...`);
+    }, 100);
+}
+
+function stopTimer() {// Functions that ends the timer and reset it
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+
+        const finalSeconds = document.getElementById("timer").innerText;
+
+        // console.log(`Totall runtime ${finalSeconds}`);
+    }
+    else {
+        // console.log("stopTimer did work, but startTimer didnt");
+
+    }
 }
 
 function disappearSearchLoadingSpinner() {
@@ -67,8 +103,10 @@ async function loadScanConfigTooltip() {
                 `Min File Size: ${minFileSize}\n` +
                 `Config Version: ${configVersion}`;
         }
+        stopTimer(); // Stop the timer after successfully loading the scan config
     } catch (err) {
         tooltipContent.textContent = "Scan config unavailable";
+        stopTimer(); // Stop the timer even if loading fails
     }
 }
 
@@ -306,6 +344,7 @@ function disappearScanLoadingSpinner() {
     }
     if(scanBtn) scanBtn.style.display = "inline-block";
     if (cancelBtn) cancelBtn.disabled = true;
+    stopTimer(); // Stop the timer when scan is completed or cancelled
 }
 
 document.getElementById("scanAllBtn").addEventListener("click", async () => {
@@ -374,10 +413,12 @@ function manageScanState() {
                         manageScanState(); // This will clear the interval
                         disappearScanLoadingSpinner();
                         if (cancelBtn) cancelBtn.classList.add("hidden");
+                        stopTimer();
                         showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
                     } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
                         scan_state = false;
                         manageScanState(); // This will clear the interval
+                        stopTimer();
                         disappearScanLoadingSpinner();
                         if (cancelBtn) cancelBtn.classList.add("hidden");
                         showToast(TOAST_STATUS.ERROR, "Scan failed");
@@ -388,6 +429,7 @@ function manageScanState() {
                     manageScanState(); // This will clear the interval
                     disappearScanLoadingSpinner();
                     if (cancelBtn) cancelBtn.classList.add("hidden");
+                    stoptimer();
                 }
             }, CHECK_SCAN_FILES_STATUS_INTERVAL);
         }
@@ -396,12 +438,14 @@ function manageScanState() {
         if (scanStatusTimer) {
             clearInterval(scanStatusTimer);
             scanStatusTimer = null;
+            stoptimer();
         }
     }
 }
 
 async function scanFiles() {
     displayScanLoadingSpinner();
+    startTimer();
 
     if (scanStatusTimer) {
         clearInterval(scanStatusTimer);
@@ -451,6 +495,7 @@ async function syncScanStateOnLoad() {
         const res = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
         if (res.data.state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
             displayScanLoadingSpinner();
+            startTimer(); // Start the timer when scan is detected as running
             startScanStatusPolling();
         } 
         else {
@@ -469,7 +514,7 @@ async function fetchFiles() {
 
     try {
         displaySearchLoadingSpinner();
-        
+        startTimer(); // Start the timer when search begins
         const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
         
         const apiResponse = await axios.get(
@@ -478,6 +523,7 @@ async function fetchFiles() {
         );
 
         disappearSearchLoadingSpinner();
+        stopTimer(); // Stop the timer after receiving the response
 
         if (!apiResponse || !apiResponse.data) {
             showToast(TOAST_STATUS.ERROR, "Failed to get response");
@@ -496,6 +542,7 @@ async function fetchFiles() {
 
     } catch (err) {
         disappearSearchLoadingSpinner();
+        st
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error while searching files");
     }
