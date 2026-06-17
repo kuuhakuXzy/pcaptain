@@ -7,6 +7,8 @@ pcaps/
 # Python cache
 backend/__pycache__/
 backend/routes/__pycache__/
+backend/utils/__pycache__/
+backend/services/__pycache__/
 
 
 AGENTS.md
