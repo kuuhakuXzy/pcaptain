@@ -38,12 +38,14 @@ nav {
     align-items: center;
 }
 
-.nav-link {
-    background: #667eea;
+.main-btn {
+    background: #0060A9;
     color: white;
+    border: none;
     padding: 10px 20px;
     border-radius: 5px;
-    text-decoration: none;
+    cursor: pointer;
+    font-size: 14px;
     font-weight: 500;
     transition: background 0.3s;
     display: flex;
@@ -51,8 +53,8 @@ nav {
     gap: 8px;
 }
 
-.nav-link:hover {
-    background: #5568d3;
+.main-btn:hover {
+    background: #004d87;
 }
 
 .refresh-btn {
@@ -174,6 +176,7 @@ nav {
     padding: 25px;
     border-radius: 10px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    overflow: visible;
 }
 
 .stat-card.large {
@@ -294,6 +297,43 @@ nav {
     margin-left: 12px;
 }
 
+.capture-year-table .table-row {
+    display: grid;
+    grid-template-columns: 1fr 100px 90px;
+    gap: 12px;
+    align-items: center;
+}
+
+.capture-year-table .table-header-row {
+    background: #f3f4f6;
+    font-weight: 600;
+    color: #374151;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.capture-year-table .table-header-row .table-cell-count,
+.capture-year-table .table-row:not(.table-header-row) .table-cell-count {
+    margin-left: 0;
+    background: transparent;
+    border-radius: 0;
+    min-width: unset;
+}
+
+.table-cell-pct {
+    text-align: right;
+    font-size: 14px;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.table-subtitle {
+    margin: -8px 0 12px 0;
+    font-size: 13px;
+    color: #6b7280;
+}
+
 .data-table::-webkit-scrollbar {
     width: 8px;
 }
@@ -334,7 +374,7 @@ nav {
 
 .diversity-legend {
     flex: 1;
-    min-width: 0;
+    min-width: 220px;
 }
 
 .legend-title {
@@ -347,21 +387,78 @@ nav {
 }
 
 .legend-list {
-    max-height: 250px;
+    max-height: 280px;
     overflow-y: auto;
+    overflow-x: visible;
     padding-right: 8px;
 }
 
 .legend-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    display: block;
+    position: relative;
     padding: 8px 12px;
     margin-bottom: 6px;
     background: #f9fafb;
     border-radius: 6px;
     border-left: 4px solid;
     transition: background 0.2s;
+}
+
+.legend-item-compact {
+    padding: 6px 10px;
+}
+
+.legend-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.legend-hover-panel {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 4px);
+    top: auto;
+    z-index: 30;
+    background: #1f2937;
+    color: #f9fafb;
+    border-radius: 8px;
+    padding: 8px 10px;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+    max-height: 220px;
+    overflow-y: auto;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+
+.legend-item-compact:hover .legend-hover-panel,
+.legend-item-compact:focus-within .legend-hover-panel {
+    visibility: visible;
+    opacity: 1;
+}
+
+.legend-item-compact .legend-item-header {
+    cursor: help;
+}
+
+.legend-hover-line {
+    font-size: 11px;
+    line-height: 1.45;
+    word-break: break-word;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.legend-hover-line:last-child {
+    border-bottom: none;
+}
+
+.legend-item-details {
+    display: none;
 }
 
 .legend-item:hover {
@@ -371,7 +468,12 @@ nav {
 .legend-item-label {
     font-size: 13px;
     color: #374151;
-    font-weight: 500;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .legend-item-count {
@@ -561,4 +663,188 @@ nav {
     .scan-mode-bar-container {
         width: 100%;
     }
+}
+
+.stat-card-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.stat-card-header-row h2 {
+    flex: 1;
+    margin: 0 0 0 0;
+}
+
+.capture-year-action-btn {
+    background: #667eea;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.capture-year-action-btn:hover {
+    background: #5a67d8;
+}
+
+.capture-year-container .capture-year-chart {
+    flex: 1 1 320px;
+    min-width: 280px;
+}
+
+.capture-year-legend-item {
+    cursor: pointer;
+}
+
+.capture-year-view-btn {
+    margin-top: 6px;
+    background: transparent;
+    border: 1px solid #d1d5db;
+    color: #4b5563;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.capture-year-view-btn:hover {
+    background: #eef2ff;
+    border-color: #667eea;
+    color: #4338ca;
+}
+
+.capture-year-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.capture-year-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(17, 24, 39, 0.55);
+}
+
+.capture-year-modal-content {
+    position: relative;
+    width: min(760px, 100%);
+    max-height: 80vh;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.capture-year-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.capture-year-modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #1f2937;
+}
+
+.capture-year-modal-close {
+    background: transparent;
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    color: #6b7280;
+    cursor: pointer;
+}
+
+.capture-year-modal-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.capture-year-modal-toolbar label {
+    font-weight: 600;
+    color: #374151;
+}
+
+.capture-year-modal-toolbar select {
+    min-width: 120px;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.capture-year-file-count {
+    margin-left: auto;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.capture-year-files-loading {
+    padding: 24px;
+    text-align: center;
+}
+
+.capture-year-files-list {
+    overflow-y: auto;
+    padding: 12px 20px 20px;
+    max-height: 52vh;
+}
+
+.capture-year-file-row {
+    padding: 12px 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.capture-year-file-row:last-child {
+    border-bottom: none;
+}
+
+.capture-year-file-name {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 4px;
+}
+
+.capture-year-file-meta {
+    font-size: 12px;
+    color: #667eea;
+    margin-bottom: 4px;
+}
+
+.capture-year-file-path {
+    font-size: 12px;
+    color: #6b7280;
+    font-family: 'Monaco', 'Courier New', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.capture-year-empty {
+    padding: 24px;
+    text-align: center;
+    color: #6b7280;
 }

@@ -1,5 +1,6 @@
 import { showToast } from "./toast-script.js";
 import { SCAN_MODE_TEXT, SERVER, TOAST_STATUS } from "./constant.js";
+import { updateInfoModalRisk, setCurrentAnalysisFile } from "./analysis-script.js";
 
 export function formatDate(timestamp) {
     if (!timestamp) return "N/A";
@@ -33,7 +34,12 @@ export function openInfoModal(file, event) {
     })(file.size_bytes);
     document.getElementById("infoPackets").innerText = file.total_packets || 0;
     document.getElementById("infoPacketsScanned").innerText = file.packets_scanned || "N/A";
-    
+
+    const captureStart = file.capture_start;
+    document.getElementById("infoCaptureStart").innerText =
+        captureStart ? formatDate(captureStart) : "N/A";
+    document.getElementById("infoCaptureYear").innerText =
+        file.capture_year ? String(file.capture_year) : "N/A";
     document.getElementById("infoModified").innerText = formatDate(file.last_modified);
     document.getElementById("infoScanned").innerText = formatDate(file.last_scanned);
     const scanModeValue = SCAN_MODE_TEXT[file.scan_mode] || "Full";
@@ -56,6 +62,8 @@ export function openInfoModal(file, event) {
 
 
     renderProtocolTable(file);
+    updateInfoModalRisk(file);
+    setCurrentAnalysisFile(file);
 
     const rect = event.currentTarget.getBoundingClientRect();
     const scrollTop = window.scrollY || document.documentElement.scrollTop;

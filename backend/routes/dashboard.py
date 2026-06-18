@@ -116,6 +116,7 @@ async def build_dashboard_summary(context: AppContext):
         extension_dist = defaultdict(int)
         rate_dist = defaultdict(int)
         scan_mode_dist = defaultdict(int)
+        capture_year_dist = defaultdict(int)
         total_files = 0
         combo_dist = defaultdict(int)
 
@@ -174,6 +175,13 @@ async def build_dashboard_summary(context: AppContext):
                     combo_key = " + ".join(clean_protocols)
                     combo_dist[combo_key] += 1
 
+                # Capture year (from earliest packet time in PCAP, not file mtime)
+                capture_year_raw = data.get("capture_year", "")
+                if capture_year_raw not in (None, ""):
+                    capture_year_dist[str(int(float(capture_year_raw)))] += 1
+                else:
+                    capture_year_dist["Unknown"] += 1
+
                 # File age
                 age_seconds = now - last_modified
                 age_bucket = _bucketize(age_seconds, AGE_BUCKETS)
@@ -214,6 +222,19 @@ async def build_dashboard_summary(context: AppContext):
             if cursor == 0:
                 break
 
+        capture_year_sorted = sorted(
+            capture_year_dist.items(),
+            key=lambda item: (item[0] == "Unknown", item[0]),
+        )
+        capture_year_table = [
+            {
+                "year": year,
+                "count": count,
+                "percentage": round((count / total_files) * 100, 1) if total_files else 0,
+            }
+            for year, count in capture_year_sorted
+        ]
+
         summary = {
             "generated_at": now,
             "total_files": total_files,
@@ -223,6 +244,8 @@ async def build_dashboard_summary(context: AppContext):
             "protocol_presence_distribution": dict(protocol_presence),
             "protocol_diversity_distribution": dict(diversity_dist),
             "file_age_distribution": dict(age_dist),
+            "capture_year_distribution": dict(capture_year_dist),
+            "capture_year_table": capture_year_table,
             "directory_distribution": dict(directory_dist),
             "extension_distribution": dict(extension_dist),
             "size_per_packet_distribution": dict(rate_dist),
@@ -241,3 +264,67 @@ async def build_dashboard_summary(context: AppContext):
         logger.error(f"Error building dashboard summary: {e}")
         redis.set(DASHBOARD_STATUS_KEY, DASHBOARD_STATUS.ERROR.value, ex=30)
         raise
+
+
+def _list_files_by_capture_year(redis, year: str) -> list[dict]:
+    results = []
+    cursor = 0
+
+    while True:
+        cursor, keys = redis.scan(
+            cursor=cursor,
+            match=f"{PCAP_FILE_KEY_PREFIX}:*",
+            count=500,
+        )
+
+        for key in keys:
+            data = redis.hgetall(key)
+            if not data:
+                continue
+
+            capture_year_raw = data.get("capture_year", "")
+            if capture_year_raw not in (None, ""):
+                file_year = str(int(float(capture_year_raw)))
+            else:
+                file_year = "Unknown"
+
+            if file_year != year:
+                continue
+
+            file_hash = key[len(f"{PCAP_FILE_KEY_PREFIX}:"):]
+            results.append(
+                {
+                    "hash": file_hash,
+                    "filename": data.get("filename", ""),
+                    "path": data.get("path", ""),
+                    "capture_start": data.get("capture_start", ""),
+                    "size_bytes": int(data.get("size_bytes", 0) or 0),
+                }
+            )
+
+        if cursor == 0:
+            break
+
+    results.sort(key=lambda item: item["filename"].lower())
+    return results
+
+
+@router.get("/dashboard/capture-year-files", summary="List PCAP files for a capture year")
+async def capture_year_files(
+    year: str = Query(..., description="Capture year (e.g. 2011) or Unknown"),
+    context: AppContext = Depends(get_app_context),
+):
+    redis = context.redis_client
+    if redis is None:
+        logger.error("Redis client not initialized. Cannot list capture-year files.")
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Service unavailable"},
+        )
+
+    files = await asyncio.to_thread(_list_files_by_capture_year, redis, year)
+    return {
+        "year": year,
+        "count": len(files),
+        "files": files,
+    }
