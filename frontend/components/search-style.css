@@ -829,3 +829,40 @@ a:visited {
     font-size: 12px;
     border: 1px solid #bbdefb;
 }
+
+.error-badge {
+    background-color: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+}
+
+/* --- LÀM NỔI BẬT DÒNG LỖI (KHÔNG CÓ MATCHED) --- */
+
+tbody tr.error-row {
+    background-color: #fee2e2 !important; /* Nền đỏ nhạt */
+}
+
+tbody tr.error-row:hover {
+    background-color: #fecaca !important; /* Đỏ đậm hơn một chút khi hover */
+}
+
+/* Biến màu chữ và các icon bên trong dòng đó thành tông đỏ cho đồng bộ */
+tbody tr.error-row td {
+    color: #991b1b;
+}
+
+tbody tr.error-row td a.file-link {
+    color: #b91c1c; 
+    font-weight: bold;
+}
+
+tbody tr.error-row td a.file-link:hover {
+    color: #7f1d1d;
+}
+
+/* Style cho cái icon bên cạnh tên file */
+.error-icon {
+    color: #dc2626;
+    font-size: 15px;
+    margin-right: 5px;
+}

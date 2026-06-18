@@ -466,15 +466,27 @@ class ScanService:
                 quick_threshold_bytes=quick_threshold_bytes,
             )
 
+            #[This code makes sure that even if the pcap file is corrupted or unreadable, we still index it with an error state.]
+            is_error = False
             if protocol_result is None:
-                logger.warning(f"Skipping file {filename} from index due to processing error.")
-                return
-            
-            protocol_data, packets_scanned = protocol_result
+                logger.warning(f"Processing error for {filename}. Indexing file with error state.")
+                is_error = True
+                protocol_data = {}
+                packets_scanned = 0
+            else:
+                protocol_data, packets_scanned = protocol_result
 
-            if not protocol_data:
+            # if protocol_result is None:
+            #     logger.warning(f"Skipping file {filename} from index due to processing error.")
+            #     return
+            
+            # protocol_data, packets_scanned = protocol_result
+
+            if not protocol_data and not is_error:
                 logger.warning(f"No protocols found in {filename}. Skipping from index.")
                 return
+            #[----------------------------------------------------]
+
 
             # Compute metadata
             protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
@@ -518,6 +530,7 @@ class ScanService:
                     "scan_mode": current_scan_mode.value,
                     "pebc": "" if current_pebc is None else current_pebc,
                     "config_version": current_config_version,
+                    "has_error": "true" if is_error else "false",
                 }
             )
 

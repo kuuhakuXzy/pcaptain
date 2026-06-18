@@ -415,31 +415,9 @@ async function scanFiles() {
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
         }
         startScanStatusPolling();
-        //const timer = setInterval(async () => {
-        /*scanStatusTimer = setInterval(async () => {
-            try {
-                const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
-                const status = apiResponse.data.state;
-                if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
-                    status === SERVER_SCANNING_FILE_STATUS.IDLE
-                ) {
-                    disappearScanLoadingSpinner();
-                    clearInterval(scanStatusTimer);
-                    scanStatusTimer = null;
-                    showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
-                } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
-                    disappearScanLoadingSpinner();
-                    clearInterval(scanStatusTimer);
-                    showToast(TOAST_STATUS.ERROR, "Scan failed");
-                }
-            } catch (err) {
-                disappearScanLoadingSpinner();
-                clearInterval(scanStatusTimer);
-                scanStatusTimer = null;
-            }
-        }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
+        const cancelBtn = document.getElementById("cancelScanBtn");
         if (cancelBtn) cancelBtn.classList.add("hidden");
         console.error("API error: ", err);
         showToast(TOAST_STATUS.ERROR, "Error triggering scan");
@@ -824,12 +802,23 @@ function renderTable(files) {
     files.forEach((file, index) => {
         const tr = document.createElement('tr');
         
-        const btnId = `infoBtn-${index}`;
+        const matched = file.matched_protocols || [];
+        const hasNoMatch = matched.length === 0 || file.total_packets == 0;
 
-        // Updated extra info column
+        const btnId = `infoBtn-${index}`;
+        let errorIconHtml = '';
+
+        if (hasNoMatch) {
+            tr.style.setProperty('background-color', '#fee2e2', 'important');
+            errorIconHtml = `<i class="fa fa-exclamation-circle error-icon" style="color: #dc2626; font-size: 15px; margin-right: 5px;" title="Corrupted or empty file"></i>`;
+        }
+
+        const textStyle = hasNoMatch ? 'color: #991b1b;' : '';
+
         tr.innerHTML = `
-            <td data-label="Filename">
-                <a href="${buildDownloadUrlWithDisplayFilter(file)}" class="file-link" download>
+            <td data-label="Filename" style="${textStyle}">
+                ${errorIconHtml}
+                <a href="${buildDownloadUrlWithDisplayFilter(file)}" class="file-link" download style="${hasNoMatch ? 'color: #b91c1c; font-weight: bold;' : ''}">
                     ${file.filename}
                 </a>
             </td>
@@ -839,27 +828,26 @@ function renderTable(files) {
             <td data-label="Mode" class="mode-cell">
                 ${getScanModeBadgeHtml(file)}
             </td>
-            <td data-label="Path">
+            <td data-label="Path" style="${textStyle}">
                 ${file.path} 
                 <i class="fa fa-copy copy-path-btn" data-path="${file.path}" title="Copy path"></i>
             </td>
-            <td data-label="Matched">
+            <td data-label="Matched" style="${textStyle}">
                 ${renderMatchedHTML(file)}
             </td>
-            <td data-label="Size">${formatFileSize(file.size_bytes)}</td>
-            <td data-label="Packet">${file.total_packets || '-'}</td>
-            
+            <td data-label="Size" style="${textStyle}">${formatFileSize(file.size_bytes)}</td>
+            <td data-label="Packet" style="${textStyle}">${file.total_packets || '-'}</td>
         `;
         tbody.appendChild(tr);
 
-        // Attach listener to info button immediately (no setTimeout needed)
+        // Attach listener
         const btn = tr.querySelector(`#${btnId}`);
         if (btn) {
             btn.addEventListener("click", handleInfoButtonClick);
         }
     });
 
-    // Use event delegation for dynamic copy buttons (attached once to tbody)
+    // Use event delegation for dynamic copy buttons
     tbody.addEventListener('click', handleCopyPathClick);
 }
 

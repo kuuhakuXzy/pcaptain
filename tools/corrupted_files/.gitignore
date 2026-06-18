@@ -1,0 +1,5 @@
+# Ignore all pcap test files
+*.pcap
+*.pcapng
+
+!.gitignore
