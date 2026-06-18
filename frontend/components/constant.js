@@ -12,6 +12,8 @@ const API_PATH = Object.freeze({
     SCAN_CONFIG_PATH: "scan-config",
     PCAP_CONFIG_PATH: "pcap-config",
     PCAP_FOLDERS_PATH: "pcap-folders",
+    PCAP_UPLOAD_PATH: "pcaps/upload",
+    PCAP_COMPARE_PATH: "pcaps/compare",
     ALERT_RULES_PATH: "alerts/rules",
     ALERT_EVALUATE_ALL_PATH: "alerts/evaluate-all",
     PCAP_CLUSTERS_PATH: "pcaps/clusters"

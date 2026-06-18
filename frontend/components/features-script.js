@@ -2,6 +2,7 @@
 import { showToast } from "./toast-script.js";
 import { API_PATH, SERVER, TOAST_STATUS } from "./constant.js";
 
+const compareSelection = new Set();
 let alertRules = [];
 
 // --- UPLOAD ---
@@ -76,6 +77,63 @@ async function uploadFile(file) {
             progress?.classList.remove("active");
             if (bar) bar.style.width = "0%";
         }, 800);
+    }
+}
+
+// --- COMPARE ---
+
+function initCompare() {
+    document.getElementById("compareBtn")?.addEventListener("click", openCompareModal);
+    document.getElementById("closeCompareModal")?.addEventListener("click", closeCompareModal);
+    document.getElementById("runCompareBtn")?.addEventListener("click", runCompare);
+}
+
+export function toggleCompareSelection(fileHash, checked) {
+    if (checked) {
+        if (compareSelection.size >= 2) {
+            showToast(TOAST_STATUS.WARNING, "Select at most 2 files to compare");
+            return false;
+        }
+        compareSelection.add(fileHash);
+    } else {
+        compareSelection.delete(fileHash);
+    }
+    updateCompareUI();
+    return true;
+}
+
+function updateCompareUI() {
+    const btn = document.getElementById("compareBtn");
+    const count = document.getElementById("compareCount");
+    if (btn) btn.disabled = compareSelection.size !== 2;
+    if (count) count.textContent = compareSelection.size > 0 ? `(${compareSelection.size}/2)` : "";
+}
+
+function openCompareModal() {
+    if (compareSelection.size !== 2) return;
+    document.getElementById("compareModal")?.classList.remove("hidden");
+    runCompare();
+}
+
+function closeCompareModal() {
+    document.getElementById("compareModal")?.classList.add("hidden");
+}
+
+async function runCompare() {
+    const hashes = [...compareSelection];
+    const resultEl = document.getElementById("compareResult");
+    if (!resultEl) return;
+
+    resultEl.innerHTML = "<p>Comparing...</p>";
+
+    try {
+        const response = await axios.get(`${SERVER}${API_PATH.PCAP_COMPARE_PATH}`, {
+            params: { hash_a: hashes[0], hash_b: hashes[1] },
+        });
+        renderCompareResult(response.data, resultEl);
+    } catch (err) {
+        const detail = err.response?.data?.detail || "Compare failed";
+        resultEl.innerHTML = `<p style="color:#c0392b">${detail}</p>`;
     }
 }
 
@@ -303,5 +361,6 @@ export function showFileAlerts(file) {
 
 document.addEventListener("DOMContentLoaded", () => {
     initUpload();
+    initCompare();
     initAlerts();
 });
