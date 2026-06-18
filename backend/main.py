@@ -26,7 +26,6 @@ from routes.pcaps import router as pcaps_router
 from routes.search import router as search_router
 from routes.dashboard import router as dashboard_router
 from routes.alerts import router as alerts_router
-from routes.analysis import router as analysis_router
 from services.alerts import seed_default_rules
 
 config = load_config()
@@ -126,7 +125,6 @@ app.include_router(pcaps_router)
 app.include_router(search_router)
 app.include_router(dashboard_router)
 app.include_router(alerts_router)
-app.include_router(analysis_router)
 
 app.add_middleware(
     CORSMiddleware,

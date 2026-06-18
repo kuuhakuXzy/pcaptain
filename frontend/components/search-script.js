@@ -959,9 +959,6 @@ function renderTable(files) {
         const alertHtml = renderAlertBadge(file);
 
         tr.innerHTML = `
-            <td data-label="Compare" class="compare-col">
-                ${fileHash ? `<input type="checkbox" class="compare-checkbox" data-hash="${fileHash}" />` : ""}
-            </td>
             <td data-label="Filename">
                 <a href="${buildDownloadUrlWithDisplayFilter(file)}" class="file-link" download>
                     ${file.filename}

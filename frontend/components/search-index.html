@@ -31,16 +31,13 @@
 <body>
     <div class="container">
         <h1>PCAPTAIN TOOL</h1>
-        <div class="search-toolbar">
-            <div class="search-row">
+        <div class="search-toolbar legacy-toolbar">
                 <div class="search-input-wrap">
                     <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
                     <div id="suggestionBox" class="suggestion-box hidden"></div>
                 </div>
                 <button id="searchBtn">Search</button>
                 <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
-            </div>
-            <div class="action-row">
                 <button id="scanBtn">Scan</button>
                 <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
                 <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
@@ -50,10 +47,6 @@
                 <button id="configBtn" class="config-btn" title="Mount directory configuration">
                     <i class="fa fa-cog"></i>
                 </button>
-                <button id="uploadBtn" class="feature-btn" title="Upload PCAP">Upload</button>
-                <button id="compareBtn" class="feature-btn" disabled title="Select 2 files to compare">
-                    Compare <span id="compareCount" class="compare-selected-count"></span>
-                </button>
                 <button id="alertsBtn" class="feature-btn" title="Alert Rules">Alerts</button>
                 <button id="clustersBtn" class="feature-btn" title="Cluster similar files">Clusters</button>
                 <div class="scan-config-tooltip" id="scanConfigTooltip">
@@ -62,21 +55,10 @@
                         Loading scan config...
                     </div>
                 </div>
-            </div>
         </div>
 
         <!-- Status signal -->
         <div class="status-signal">        </div>
-
-        <div class="upload-zone" id="uploadZone">
-            <div class="upload-icon"><i class="fa fa-cloud-upload"></i></div>
-            <p><strong>Drop PCAP file here</strong> or click to upload</p>
-            <p>Supported: .pcap, .pcapng, .cap (max 200 MB)</p>
-            <input type="file" id="uploadInput" accept=".pcap,.pcapng,.cap" hidden>
-            <div class="upload-progress" id="uploadProgress">
-                <div class="upload-progress-bar" id="uploadProgressBar"></div>
-            </div>
-        </div>
 
         <!-- Control setting for sorting and pagination -->
         <div class="controls-container">
@@ -114,7 +96,6 @@
             <table id="resultTable">
                 <thead>
                     <tr>
-                        <th class="compare-col"><i class="fa fa-check-square-o" title="Select to compare"></i></th>
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
@@ -168,18 +149,6 @@
             </div>
         </div>
 
-        <!-- Compare Modal -->
-        <div id="compareModal" class="feature-modal hidden">
-            <div class="feature-modal-content wide">
-                <h2>Compare PCAP Files</h2>
-                <div id="compareResult"><p>Select 2 files and click Compare</p></div>
-                <div class="feature-modal-actions">
-                    <button id="runCompareBtn" class="feature-btn primary">Refresh</button>
-                    <button id="closeCompareModal" class="feature-btn">Close</button>
-                </div>
-            </div>
-        </div>
-
         <!-- Alerts Modal -->
         <div id="alertsModal" class="feature-modal hidden">
             <div class="feature-modal-content wide">
@@ -229,26 +198,6 @@
             </div>
         </div>
 
-        <!-- Analysis Modal (IOC + Timeline) -->
-        <div id="analysisModal" class="feature-modal hidden">
-            <div class="feature-modal-content wide">
-                <h2 id="analysisTitle">Analysis</h2>
-                <div class="analysis-tabs">
-                    <button type="button" class="analysis-tab active" data-tab="ioc">IOC</button>
-                    <button type="button" class="analysis-tab" data-tab="timeline">Timeline</button>
-                </div>
-                <div id="panel-ioc" class="analysis-panel">
-                    <div id="iocContent"><p>Loading...</p></div>
-                </div>
-                <div id="panel-timeline" class="analysis-panel hidden">
-                    <div id="timelineContent"><p>Loading...</p></div>
-                </div>
-                <div class="feature-modal-actions">
-                    <button id="closeAnalysisModal" class="feature-btn">Close</button>
-                </div>
-            </div>
-        </div>
-
         <!-- Similar Files Modal -->
         <div id="similarModal" class="feature-modal hidden">
             <div class="feature-modal-content wide">
@@ -284,7 +233,6 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
-    <script type="module" src="analysis-script.js"></script>
     <script type="module" src="search-script.js"></script>
     <script type="module" src="features-script.js"></script>
 </body>
