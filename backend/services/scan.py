@@ -201,44 +201,80 @@ async def get_all_protocols(redis: Redis):
     return await asyncio.to_thread(redis.zrange, AUTOCOMPLETE_KEY, 0, -1)
 
 
-def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
-    command = ["capinfos", "-M", "-c", pcap_file]
+def get_capinfos_metadata_sync(pcap_file: str) -> dict:
+    """Read packet count and capture start/end times via capinfos."""
+    command = ["capinfos", "-M", "-a", "-e", "-c", pcap_file]
+    result = {
+        "total_packets": None,
+        "capture_start": None,
+        "capture_end": None,
+        "capture_year": None,
+    }
 
     try:
-        result = subprocess.run(
+        proc = subprocess.run(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
 
-        if result.returncode != 0:
+        if proc.returncode != 0:
             logger.error(
                 "capinfos exited with error for %s: %s",
                 pcap_file,
-                result.stderr.strip(),
+                proc.stderr.strip(),
             )
-            return None
+            return result
 
-        match = re.search(
+        output = proc.stdout
+        packet_match = re.search(
             r"(?:Number of packets|Packets)\s*[:=]\s*(\d+)",
-            result.stdout,
+            output,
         )
-        if not match:
-            logger.error(
-                "Could not parse packet count from capinfos output for %s",
-                pcap_file,
-            )
-            return None
+        if packet_match:
+            result["total_packets"] = int(packet_match.group(1))
 
-        return int(match.group(1))
+        start_match = re.search(r"Earliest packet time:\s*(.+)", output)
+        end_match = re.search(r"Latest packet time:\s*(.+)", output)
+
+        if start_match:
+            start_raw = start_match.group(1).strip()
+            result["capture_start"] = _parse_capinfos_timestamp(start_raw)
+            year_match = re.match(r"(\d{4})", start_raw)
+            if year_match:
+                result["capture_year"] = int(year_match.group(1))
+
+        if end_match:
+            result["capture_end"] = _parse_capinfos_timestamp(end_match.group(1).strip())
 
     except FileNotFoundError:
         logger.error("capinfos not found — please install it.")
-        return None
     except Exception as e:
         logger.error("Unexpected error while running capinfos on %s: %s", pcap_file, e)
+
+    return result
+
+
+def _parse_capinfos_timestamp(raw: str) -> Optional[str]:
+    from datetime import datetime
+
+    if not raw or raw.lower() in {"n/a", "unknown", "(none)"}:
         return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    return raw.strip()
+
+
+def get_total_packets_from_pcap_sync(pcap_file: str) -> Optional[int]:
+    return get_capinfos_metadata_sync(pcap_file).get("total_packets")
+
+
+async def get_capinfos_metadata_from_pcap(pcap_file: str) -> dict:
+    return await asyncio.to_thread(get_capinfos_metadata_sync, pcap_file)
 
 
 async def get_total_packets_from_pcap(pcap_file: str) -> Optional[int]:
@@ -485,7 +521,11 @@ class ScanService:
 
             protocols = sorted(list(protocol_data.keys()))
             download_url = f"{context.config.public_url}/pcaps/download/{file_hash}"
-            total_packets = await get_total_packets_from_pcap(file_path)
+            cap_meta = await get_capinfos_metadata_from_pcap(file_path)
+            total_packets = cap_meta.get("total_packets")
+            capture_start = cap_meta.get("capture_start")
+            capture_end = cap_meta.get("capture_end")
+            capture_year = cap_meta.get("capture_year")
 
             if total_packets is None:
                 logger.warning(f"capinfos failed for {file_path}; continuing without total_packets")
@@ -518,6 +558,9 @@ class ScanService:
                     "scan_mode": current_scan_mode.value,
                     "pebc": "" if current_pebc is None else current_pebc,
                     "config_version": current_config_version,
+                    "capture_start": "" if capture_start is None else capture_start,
+                    "capture_end": "" if capture_end is None else capture_end,
+                    "capture_year": "" if capture_year is None else capture_year,
                 }
             )
 

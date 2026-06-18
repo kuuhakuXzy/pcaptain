@@ -16,9 +16,9 @@
         <header>
             <h1>PCAP Dashboard</h1>
             <nav>
-                <a href="/" class="nav-link">
-                    <i class="fa fa-search"></i> Search
-                </a>
+                <button type="button" onclick="location.href='/'" class="main-btn" title="Back to Main">
+                    <i class="fa fa-home"></i> Main
+                </button>
                 <button id="refreshBtn" class="refresh-btn" title="Refresh Data">
                     <i class="fa fa-refresh"></i> Refresh
                 </button>
@@ -93,9 +93,29 @@
                     </div>
                  </div>
 
-                <!-- File Age Distribution -->
+                <!-- Capture Year (from packet timestamps) -->
                 <div class="stat-card">
-                    <h2>File Age Distribution</h2>
+                    <div class="stat-card-header-row">
+                        <h2>Capture Year Distribution</h2>
+                        <button type="button" id="captureYearBrowseBtn" class="capture-year-action-btn" title="Browse files grouped by capture year">
+                            <i class="fa fa-list"></i> View Files by Year
+                        </button>
+                    </div>
+                    <p class="table-subtitle">Year of earliest packet in each file (not file modified date)</p>
+                    <div class="diversity-container capture-year-container">
+                        <div class="diversity-chart capture-year-chart">
+                            <canvas id="captureYearChart"></canvas>
+                        </div>
+                        <div class="diversity-legend">
+                            <div class="legend-title">Distribution</div>
+                            <div id="captureYearLegendList" class="legend-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File Age Distribution (filesystem modified) -->
+                <div class="stat-card">
+                    <h2>File Modified Age</h2>
                     <canvas id="ageDistChart"></canvas>
                 </div>
 
@@ -134,6 +154,26 @@
             </div>
         </div>
     </div>
+    <div id="captureYearModal" class="capture-year-modal hidden">
+        <div class="capture-year-modal-backdrop" id="captureYearModalBackdrop"></div>
+        <div class="capture-year-modal-content">
+            <div class="capture-year-modal-header">
+                <h3>Files by Capture Year</h3>
+                <button type="button" id="captureYearModalClose" class="capture-year-modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="capture-year-modal-toolbar">
+                <label for="captureYearSelect">Year</label>
+                <select id="captureYearSelect"></select>
+                <span id="captureYearFileCount" class="capture-year-file-count"></span>
+            </div>
+            <div id="captureYearFilesLoading" class="capture-year-files-loading hidden">
+                <div class="spinner"></div>
+                <p>Loading files...</p>
+            </div>
+            <div id="captureYearFilesList" class="capture-year-files-list"></div>
+        </div>
+    </div>
+
     <script src="../config.js"></script>
     <script type="module" src="dashboard-script.js"></script>
 </body>

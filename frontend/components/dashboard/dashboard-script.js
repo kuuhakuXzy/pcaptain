@@ -8,11 +8,26 @@ const lastUpdatedEl = document.getElementById('lastUpdated');
 
 let charts = {};
 let pollInterval = null;
+let captureYearTableData = [];
+
+const CHART_COLORS = [
+    'rgba(102, 126, 234, 0.8)',
+    'rgba(118, 75, 162, 0.8)',
+    'rgba(16, 185, 129, 0.8)',
+    'rgba(245, 158, 11, 0.8)',
+    'rgba(239, 68, 68, 0.8)',
+    'rgba(59, 130, 246, 0.8)',
+    'rgba(168, 85, 247, 0.8)',
+    'rgba(236, 72, 153, 0.8)',
+    'rgba(20, 184, 166, 0.8)',
+    'rgba(251, 146, 60, 0.8)',
+];
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
-    
+    initCaptureYearModal();
+
     refreshBtn.addEventListener('click', () => {
         loadDashboardData(true);
     });
@@ -98,6 +113,11 @@ function renderDashboard(data) {
     // Render file system tables
     renderDirectoryTable(data.directory_distribution || {});
     renderExtensionTable(data.extension_distribution || {});
+    captureYearTableData = data.capture_year_table || [];
+    renderCaptureYearSection(
+        data.capture_year_distribution || {},
+        captureYearTableData
+    );
 
     // Render scan mode stats
     renderScanModeStats(data.scan_mode_distribution || {}, data.total_files || 0);
@@ -126,7 +146,8 @@ function renderDashboard(data) {
     charts.diversityChart = createPieChart(
         'diversityChart',
         data.protocol_diversity_distribution,
-        'Protocol Count'
+        'Protocol Count',
+        data.protocol_diversity_details || {}
     );
 
     const comboData = data.protocol_combination_distribution || {};
@@ -283,6 +304,229 @@ function renderDirectoryTree(tree, container, depth) {
     }
 }
 
+function renderCaptureYearSection(data, tableRows = []) {
+    const labels = tableRows.length
+        ? tableRows.map(row => row.year)
+        : Object.keys(data).sort((a, b) => {
+            if (a === 'Unknown') return 1;
+            if (b === 'Unknown') return -1;
+            return a.localeCompare(b, undefined, { numeric: true });
+        });
+    const values = labels.map(year => data[year] || 0);
+    const colors = labels.map((_, idx) => CHART_COLORS[idx % CHART_COLORS.length]);
+    const borderColors = colors.map(color => color.replace('0.8', '1'));
+
+    renderCaptureYearLegend(tableRows.length ? tableRows : labels.map(year => ({
+        year,
+        count: data[year] || 0,
+        percentage: 0,
+    })), colors);
+
+    const ctx = document.getElementById('captureYearChart').getContext('2d');
+    charts.captureYearChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Files',
+                data: values,
+                backgroundColor: colors,
+                borderColor: borderColors,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            onClick: (_event, elements) => {
+                if (!elements.length) return;
+                openCaptureYearModal(labels[elements[0].index]);
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        maxRotation: 45,
+                        minRotation: 45,
+                        autoSkip: true,
+                        maxTicksLimit: 12
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        title(context) {
+                            return `Year ${context[0].label}`;
+                        },
+                        label(context) {
+                            const row = tableRows.find(item => item.year === context.label);
+                            const pct = row ? row.percentage : 0;
+                            return ` ${context.parsed.y} files (${pct}%)`;
+                        },
+                        afterLabel(context) {
+                            return 'Click to view files';
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    populateCaptureYearSelect(labels);
+}
+
+function renderCaptureYearLegend(rows, colors) {
+    const legendContainer = document.getElementById('captureYearLegendList');
+    if (!legendContainer) return;
+
+    legendContainer.innerHTML = '';
+    const sortedRows = [...rows].sort((a, b) => b.count - a.count);
+
+    sortedRows.forEach((row, idx) => {
+        const colorIndex = rows.findIndex(item => item.year === row.year);
+        const color = colors[colorIndex >= 0 ? colorIndex : idx % colors.length];
+        const item = document.createElement('div');
+        item.className = 'legend-item legend-item-compact capture-year-legend-item';
+        item.style.borderLeftColor = color;
+        item.innerHTML = `
+            <div class="legend-item-header">
+                <span class="legend-item-label">${row.year}</span>
+                <span class="legend-item-count">${row.count}</span>
+            </div>
+            <button type="button" class="capture-year-view-btn" data-year="${row.year}" title="View files from ${row.year}">
+                <i class="fa fa-folder-open"></i> View files
+            </button>
+        `;
+
+        item.querySelector('.capture-year-view-btn').addEventListener('click', (event) => {
+            event.stopPropagation();
+            openCaptureYearModal(row.year);
+        });
+        item.addEventListener('click', () => openCaptureYearModal(row.year));
+
+        legendContainer.appendChild(item);
+    });
+}
+
+function initCaptureYearModal() {
+    const modal = document.getElementById('captureYearModal');
+    const browseBtn = document.getElementById('captureYearBrowseBtn');
+    const closeBtn = document.getElementById('captureYearModalClose');
+    const backdrop = document.getElementById('captureYearModalBackdrop');
+    const select = document.getElementById('captureYearSelect');
+
+    browseBtn?.addEventListener('click', () => {
+        const defaultYear = select?.value || captureYearTableData[0]?.year;
+        openCaptureYearModal(defaultYear);
+    });
+    closeBtn?.addEventListener('click', closeCaptureYearModal);
+    backdrop?.addEventListener('click', closeCaptureYearModal);
+    select?.addEventListener('change', () => loadCaptureYearFiles(select.value));
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+            closeCaptureYearModal();
+        }
+    });
+}
+
+function populateCaptureYearSelect(years) {
+    const select = document.getElementById('captureYearSelect');
+    if (!select) return;
+
+    select.innerHTML = '';
+    years.forEach((year) => {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        select.appendChild(option);
+    });
+}
+
+function openCaptureYearModal(year) {
+    if (!year) return;
+
+    const modal = document.getElementById('captureYearModal');
+    const select = document.getElementById('captureYearSelect');
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    if (select && [...select.options].some(option => option.value === year)) {
+        select.value = year;
+    }
+
+    loadCaptureYearFiles(year);
+}
+
+function closeCaptureYearModal() {
+    document.getElementById('captureYearModal')?.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+async function loadCaptureYearFiles(year) {
+    const loading = document.getElementById('captureYearFilesLoading');
+    const list = document.getElementById('captureYearFilesList');
+    const countEl = document.getElementById('captureYearFileCount');
+
+    if (!year || !list) return;
+
+    loading?.classList.remove('hidden');
+    list.innerHTML = '';
+    if (countEl) countEl.textContent = '';
+
+    try {
+        const response = await axios.get(`${SERVER}${API_PATH.CAPTURE_YEAR_FILES_PATH}`, {
+            params: { year }
+        });
+        const files = response.data.files || [];
+        if (countEl) {
+            countEl.textContent = `${files.length} file${files.length === 1 ? '' : 's'}`;
+        }
+
+        if (!files.length) {
+            list.innerHTML = '<div class="capture-year-empty">No files found for this year.</div>';
+            return;
+        }
+
+        files.forEach((file) => {
+            const row = document.createElement('div');
+            row.className = 'capture-year-file-row';
+            row.innerHTML = `
+                <div class="capture-year-file-name" title="${file.path}">${file.filename}</div>
+                <div class="capture-year-file-meta">${formatCaptureStart(file.capture_start)}</div>
+                <div class="capture-year-file-path" title="${file.path}">${file.path}</div>
+            `;
+            list.appendChild(row);
+        });
+    } catch (error) {
+        console.error('Error loading capture year files:', error);
+        list.innerHTML = '<div class="capture-year-empty">Failed to load files for this year.</div>';
+    } finally {
+        loading?.classList.add('hidden');
+    }
+}
+
+function formatCaptureStart(value) {
+    if (!value) return 'Capture time unknown';
+    const numeric = Number(value);
+    if (!Number.isNaN(numeric)) {
+        const date = new Date(numeric * 1000);
+        if (!Number.isNaN(date.getTime())) return date.toLocaleString();
+    }
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date.toLocaleString();
+    return value;
+}
+
 function renderExtensionTable(data) {
     const container = document.getElementById('extensionTable');
     container.innerHTML = '';
@@ -387,25 +631,92 @@ function createHorizontalBarChart(canvasId, data, label) {
     });
 }
 
-function createPieChart(canvasId, data, label) {
-    const ctx = document.getElementById(canvasId).getContext('2d');
+function sortEntriesByValueDesc(entries) {
+    const list = Array.isArray(entries)
+        ? [...entries]
+        : Object.entries(entries || {});
+    return list.sort((a, b) => {
+        const valueDiff = b[1] - a[1];
+        if (valueDiff !== 0) return valueDiff;
+        return String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true });
+    });
+}
 
-    // Sort by count descending
-    const sorted = Object.entries(data).sort((a, b) => b[1] -a[1]);
+function preparePieSlices(data, maxItems = 5) {
+    const sorted = sortEntriesByValueDesc(data);
 
-    // Max number of individual slices to show (excluding 'Others')
-    const MAX_ITEMS = 5;
-
-    // count === 1 OR rank > MAX_ITEMS → goes to Others
-    const topEntries = sorted.filter(([, count], idx) => count > 1 && idx < MAX_ITEMS);
-    const otherEntries = sorted.filter(([, count], idx) => count === 1 || idx >= MAX_ITEMS);
-    const otherCount = otherEntries.reduce((sum, [, count]) => sum + count, 0);
+    const topEntries = sorted.filter(([, count], idx) => count > 1 && idx < maxItems);
+    const remainder = sorted.filter(([, count], idx) => count === 1 || idx >= maxItems);
+    const otherCount = remainder.reduce((sum, [, count]) => sum + count, 0);
 
     const finalEntries = [...topEntries];
-    if (otherCount > 0) finalEntries.push(['Others', otherCount]);
+    if (otherCount > 0) {
+        finalEntries.push(['Others', otherCount]);
+    }
 
-    const labels = finalEntries.map(([key]) => key);
+    return {
+        finalEntries: sortEntriesByValueDesc(finalEntries),
+        remainder,
+    };
+}
+
+function formatDiversityLabel(key) {
+    if (key === 'Others') return 'Others';
+    const n = Number(key);
+    return `${n} protocol${n === 1 ? '' : 's'}`;
+}
+
+function getDiversitySliceCombos(sliceKey, details, remainder) {
+    if (sliceKey === 'Others') {
+        const combos = [];
+        for (const [divKey] of remainder) {
+            const bucket = details[divKey] || [];
+            bucket.forEach((item) => combos.push({ ...item, diversity: divKey }));
+        }
+        combos.sort((a, b) => b.count - a.count);
+        return combos;
+    }
+    return details[sliceKey] || [];
+}
+
+function buildLegendHoverPanel(lines) {
+    if (!lines.length) return '';
+    const html = lines
+        .map((line) => `<div class="legend-hover-line">${line}</div>`)
+        .join('');
+    return `<div class="legend-hover-panel">${html}</div>`;
+}
+
+function truncateLegendLabel(text, maxLen = 42) {
+    if (!text || text.length <= maxLen) return text;
+    return `${text.slice(0, maxLen - 3)}...`;
+}
+
+function buildComboDetailLines(combos, maxLines = 6) {
+    if (!combos.length) {
+        return [' (no protocol detail)'];
+    }
+    const lines = combos.slice(0, maxLines).map(
+        (item) => ` • ${item.protocols} (${item.count} file${item.count > 1 ? 's' : ''})`
+    );
+    if (combos.length > maxLines) {
+        lines.push(` • … +${combos.length - maxLines} more`);
+    }
+    return lines;
+}
+
+function createPieChart(canvasId, data, label, details = {}) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+
+    const { finalEntries, remainder } = preparePieSlices(data, 5);
+
+    const labels = finalEntries.map(([key]) => formatDiversityLabel(key));
     const values = finalEntries.map(([, count]) => count);
+    const sliceKeys = finalEntries.map(([key]) => key);
+
+    const sliceCombosMap = Object.fromEntries(
+        sliceKeys.map((key) => [formatDiversityLabel(key), getDiversitySliceCombos(key, details, remainder)])
+    );
 
     const colors = [
         'rgba(102, 126, 234, 0.8)',
@@ -420,18 +731,26 @@ function createPieChart(canvasId, data, label) {
         'rgba(251, 146, 60, 0.8)',
     ];
 
-    // Render custom legend list
     const legendContainer = document.getElementById('diversityLegendList');
     if (legendContainer) {
         legendContainer.innerHTML = '';
-        finalEntries.forEach(([lbl, count], idx) => {
+        finalEntries.forEach(([key, count], idx) => {
             const color = colors[idx % colors.length];
+            const displayLabel = formatDiversityLabel(key);
+            const combos = getDiversitySliceCombos(key, details, remainder);
+            const hoverLines = combos.map(
+                (item) => `${item.protocols} (${item.count} file${item.count > 1 ? 's' : ''})`
+            );
+
             const item = document.createElement('div');
-            item.className = 'legend-item';
+            item.className = 'legend-item legend-item-compact';
             item.style.borderLeftColor = color;
             item.innerHTML = `
-                <span class="legend-item-label">${lbl === "Others" ? "Others" : `${lbl} protocols`}</span>
-                <span class="legend-item-count">${count}</span>
+                <div class="legend-item-header">
+                    <span class="legend-item-label">${displayLabel}</span>
+                    <span class="legend-item-count">${count}</span>
+                </div>
+                ${hoverLines.length ? buildLegendHoverPanel(hoverLines) : ''}
             `;
             legendContainer.appendChild(item);
         });
@@ -440,7 +759,7 @@ function createPieChart(canvasId, data, label) {
     return new Chart(ctx, {
         type: 'pie',
         data: {
-            labels: labels.map(lbl => lbl === 'Others' ? 'Others' : `${lbl} protocols`),
+            labels,
             datasets: [{
                 label: label,
                 data: values,
@@ -458,28 +777,17 @@ function createPieChart(canvasId, data, label) {
                 },
                 tooltip: {
                     callbacks: {
-                        title: (context) => {
-                            return context[0].label;
-                        },
+                        title: (context) => context[0].label,
                         label: (context) => {
                             const count = context.raw;
-                            const total = context.dataset.data.reduce((sum, count) => sum + count, 0);
+                            const total = context.dataset.data.reduce((sum, n) => sum + n, 0);
                             const pct = ((count / total) * 100).toFixed(1);
-                            
-                            
-                            // Default tooltip for normal slices
-                            if (context.label !== 'Others') {
-                                return ` ${count} files (${pct}%)`;
-                            }
-
-                            // Build detailed tooltip for Others slice
-                            const lines = [
+                            const combos = sliceCombosMap[context.label] || [];
+                            return [
                                 ` ${count} files (${pct}%)`,
-                                ` ─────────────────`,
-                                ...otherEntries.map(([lbl, count]) => ` • ${lbl} protocols: (${count} file${count > 1 ? 's' : ''})`)
+                                ' ─────────────────',
+                                ...buildComboDetailLines(combos, 10),
                             ];
-
-                            return lines;
                         }
                     }
                 }
@@ -491,19 +799,7 @@ function createPieChart(canvasId, data, label) {
 function createProtocolComboPieChart(canvasId, data) {
     const ctx = document.getElementById(canvasId).getContext('2d');
 
-    // Sort by count descending
-    const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
-
-    // Max number of individual slices to show (excluding 'Others')
-    const MAX_ITEMS = 5;
-
-    // rank > MAX_ITEMS or count = 1 => will be grouped as 'Others'
-    const topEntries = sorted.filter(([, count], idx) => count > 1 && idx < MAX_ITEMS);
-    const otherEntries = sorted.filter(([, count], idx) => count === 1 || idx >= MAX_ITEMS);
-    const otherCount = otherEntries.reduce((sum, [, count]) => sum + count, 0);
-
-    const finalEntries = [...topEntries];
-    if (otherCount > 0) finalEntries.push(['Others', otherCount]);
+    const { finalEntries, remainder } = preparePieSlices(data, 5);
 
     const comboLabels = finalEntries.map(([combo]) => combo);
     const comboValues = finalEntries.map(([, value]) => value);
@@ -527,18 +823,26 @@ function createProtocolComboPieChart(canvasId, data) {
         legendContainer.innerHTML = '';
         comboLabels.forEach((lbl, idx) => {
             const color = colors[idx % colors.length];
-            const shortLabel = lbl.length > 40 ? lbl.slice(0, 37) + '...' : lbl;
+            const count = comboValues[idx];
+            const hoverLines =
+                lbl === 'Others'
+                    ? remainder.map(([combo, n]) => `${combo} (${n} file${n > 1 ? 's' : ''})`)
+                    : [lbl];
+
+            const compactLabel = lbl === 'Others' ? 'Others' : truncateLegendLabel(lbl, 36);
+
             const item = document.createElement('div');
-
-            item.className = 'legend-item';
+            item.className = 'legend-item legend-item-compact';
             item.style.borderLeftColor = color;
-
             item.innerHTML = `
-                <span class="legend-item-label" title="${lbl}">${shortLabel}</span>
-                <span class="legend-item-count">${comboValues[idx]}</span>
+                <div class="legend-item-header">
+                    <span class="legend-item-label">${compactLabel}</span>
+                    <span class="legend-item-count">${count}</span>
+                </div>
+                ${buildLegendHoverPanel(hoverLines)}
             `;
             legendContainer.appendChild(item);
-        })
+        });
     }
 
     return new Chart(ctx, {
@@ -575,7 +879,16 @@ function createProtocolComboPieChart(canvasId, data) {
                                 return ` ${count} files (${pct}%)`;
                             }
 
-                            return ` ${count} files (${pct}%)`
+                            const lines = [
+                                ` ${count} files (${pct}%)`,
+                                ` ─────────────────`,
+                                ...remainder.map(([lbl, n]) => {
+                                    const short = lbl.length > 40 ? `${lbl.slice(0, 37)}...` : lbl;
+                                    return ` • ${short} (${n} file${n > 1 ? 's' : ''})`;
+                                }),
+                            ];
+
+                            return lines;
                         }
                     }
                 }
