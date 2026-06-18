@@ -1,0 +1,67 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "${REDIS_PORT}:${REDIS_INTERNAL_PORT}"
+    command: redis-server --port ${REDIS_INTERNAL_PORT}
+    volumes:
+      - redis_data:/data
+    env_file:
+      - .env
+    networks:
+      - app_network
+    # network_mode: "host"
+
+  backend:
+    # image: mika1512/pcap-catalog-service:2.5.0
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: backend
+    restart: always
+    depends_on:
+      - redis
+    ports:
+      - "${BE_BASE_PORT}:${BE_INTERNAL_PORT}"
+    volumes:
+      # Single mount (default): host ./pcaps -> container /pcaps
+      - "${PCAP_DIRECTORIES}:${PCAP_MOUNTED_DIRECTORY}"
+      # Multi-mount example (uncomment and set PCAP_ROOT_DIRECTORIES in .env):
+      # - "./archive:/pcaps/archive"
+      # - "./lab:/pcaps/lab"
+      - "./backend/config/config.yaml:/app/config/config.yaml"
+    environment:
+      - PORT=${BE_INTERNAL_PORT}
+      - PCAP_ROOT_DIRECTORY=${PCAP_MOUNTED_DIRECTORY}
+      - PCAP_ROOT_DIRECTORIES=${PCAP_ROOT_DIRECTORIES:-}
+      - PCAP_PREFIX_STR=${PCAP_DIRECTORIES} # Adjusted to match host path
+      - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_INTERNAL_PORT}
+      - PUBLIC_URL=${BE_PUBLIC_URL}
+    # using config/config.yaml instead for configuration
+    networks:
+      - app_network
+
+  frontend:
+    #image: mika1512/pcap-frontend-app:1.5.0
+    build: ./frontend
+    container_name: frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT}:${NGINX_PORT}"
+    env_file:
+      - .env
+    networks:
+      - app_network
+
+volumes:
+  redis_data:
+    # backend_logs:
+
+networks:
+  app_network:
+    driver: bridge

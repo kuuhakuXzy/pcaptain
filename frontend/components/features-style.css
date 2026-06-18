@@ -1,0 +1,462 @@
+/* Upload, Compare, Alerts feature styles */
+
+.feature-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    align-items: center;
+}
+
+.feature-btn {
+    padding: 8px 14px;
+    border: 1px solid #0060A9;
+    background: #fff;
+    color: #0060A9;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.feature-btn:hover:not(:disabled) {
+    background: #e8f4fc;
+}
+
+.feature-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.feature-btn.primary {
+    background: #0060A9;
+    color: #fff;
+}
+
+.feature-btn.primary:hover:not(:disabled) {
+    background: #004d87;
+}
+
+.feature-btn.danger {
+    border-color: #c0392b;
+    color: #c0392b;
+}
+
+.upload-zone {
+    border: 2px dashed #0060A9;
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    background: #f8fbff;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    margin-bottom: 12px;
+}
+
+.upload-zone.dragover {
+    background: #e8f4fc;
+    border-color: #004d87;
+}
+
+.upload-zone p {
+    margin: 4px 0;
+    color: #555;
+    font-size: 13px;
+}
+
+.upload-zone .upload-icon {
+    font-size: 28px;
+    color: #0060A9;
+    margin-bottom: 8px;
+}
+
+.upload-progress {
+    height: 4px;
+    background: #e0e0e0;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 8px;
+    display: none;
+}
+
+.upload-progress.active {
+    display: block;
+}
+
+.upload-progress-bar {
+    height: 100%;
+    background: #0060A9;
+    width: 0%;
+    transition: width 0.3s;
+}
+
+/* Alert badges */
+.alert-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+    vertical-align: middle;
+    cursor: pointer;
+}
+
+.alert-badge.high {
+    background: #fdecea;
+    color: #c0392b;
+    border: 1px solid #e74c3c;
+}
+
+.alert-badge.medium {
+    background: #fef9e7;
+    color: #d68910;
+    border: 1px solid #f39c12;
+}
+
+.alert-badge.low {
+    background: #eafaf1;
+    color: #1e8449;
+    border: 1px solid #27ae60;
+}
+
+/* Compare checkbox column */
+.compare-col {
+    width: 36px;
+    text-align: center;
+}
+
+.compare-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.compare-selected-count {
+    font-size: 12px;
+    color: #666;
+    margin-left: 4px;
+}
+
+/* Modals */
+.feature-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.feature-modal.hidden {
+    display: none;
+}
+
+.feature-modal-content {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90%;
+    max-width: 640px;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.feature-modal-content.wide {
+    max-width: 820px;
+}
+
+.feature-modal h2 {
+    margin: 0 0 16px;
+    color: #0060A9;
+    font-size: 18px;
+}
+
+.feature-modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+/* Compare result */
+.compare-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.compare-file-card {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 13px;
+}
+
+.compare-file-card h4 {
+    margin: 0 0 8px;
+    color: #0060A9;
+    word-break: break-all;
+}
+
+.compare-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.compare-similarity {
+    text-align: center;
+    padding: 12px;
+    background: #f0f8ff;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 15px;
+}
+
+.compare-similarity strong {
+    font-size: 22px;
+    color: #0060A9;
+}
+
+.compare-section {
+    margin-bottom: 12px;
+}
+
+.compare-section h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #333;
+}
+
+.proto-tag {
+    display: inline-block;
+    background: #eef4fb;
+    color: #0060A9;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin: 2px;
+}
+
+.proto-tag.only-a { background: #fdecea; color: #c0392b; }
+.proto-tag.only-b { background: #fef9e7; color: #d68910; }
+.proto-tag.common { background: #eafaf1; color: #1e8449; }
+
+/* Alert rules table */
+.rules-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.rules-table th,
+.rules-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+
+.rules-table th {
+    background: #f5f8fa;
+    color: #333;
+}
+
+.rule-form {
+    border-top: 1px solid #eee;
+    padding-top: 16px;
+}
+
+.rule-form .form-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.rule-form input,
+.rule-form select {
+    flex: 1;
+    min-width: 120px;
+    padding: 7px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.rule-toggle {
+    cursor: pointer;
+    font-size: 18px;
+}
+
+.rule-enabled { color: #27ae60; }
+.rule-disabled { color: #bbb; }
+
+.alert-list-item {
+    padding: 8px 10px;
+    border-left: 3px solid #ccc;
+    margin-bottom: 6px;
+    background: #fafafa;
+    font-size: 13px;
+    border-radius: 0 4px 4px 0;
+}
+
+.alert-list-item.high { border-color: #e74c3c; }
+.alert-list-item.medium { border-color: #f39c12; }
+.alert-list-item.low { border-color: #27ae60; }
+
+@media (max-width: 600px) {
+    .compare-summary {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Analysis modal */
+.analysis-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+}
+
+.analysis-tab {
+    padding: 6px 16px;
+    border: 1px solid #ccc;
+    background: #f5f5f5;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.analysis-tab.active {
+    background: #0060A9;
+    color: #fff;
+    border-color: #0060A9;
+}
+
+.analysis-panel.hidden {
+    display: none;
+}
+
+.analysis-section {
+    margin-bottom: 16px;
+}
+
+.analysis-section h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: #0060A9;
+}
+
+.analysis-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.analysis-table th,
+.analysis-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #eee;
+    text-align: left;
+}
+
+.analysis-table th {
+    background: #f5f8fa;
+}
+
+.analysis-note {
+    font-size: 12px;
+    color: #666;
+    margin: 0 0 12px;
+}
+
+.error-text {
+    color: #c0392b;
+}
+
+.timeline-legend {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #666;
+}
+
+.cluster-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.cluster-controls input {
+    width: 60px;
+    padding: 4px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.cluster-card {
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.cluster-header {
+    background: #f0f8ff;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+}
+
+.cluster-meta {
+    color: #666;
+    font-size: 12px;
+}
+
+.cluster-file-list {
+    margin: 0;
+    padding: 8px 12px 8px 28px;
+    font-size: 12px;
+}
+
+.cluster-file-list li {
+    padding: 2px 0;
+}
+
+.risk-factors-list {
+    margin-top: 4px;
+}
+
+.risk-factor {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-top: 2px;
+    display: inline-block;
+    margin-right: 4px;
+}
+
+.risk-factor.high { background: #fdecea; color: #c0392b; }
+.risk-factor.medium { background: #fef9e7; color: #d68910; }
+.risk-factor.low { background: #eafaf1; color: #1e8449; }
+
+.info-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.info-actions .feature-btn {
+    padding: 5px 10px;
+    font-size: 11px;
+}

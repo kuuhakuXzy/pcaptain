@@ -1,0 +1,22 @@
+port: 7000
+public_url: http://localhost:7000
+redis:
+  host: redis
+  port: 6380
+pcap:
+  root_directory: /pcaps
+  prefix_str: ./pcaps
+  allowed_file_extensions:
+    - .pcap
+    - .pcapng
+    - .cap
+  scan_interval_seconds: 3600
+  scan_mode: fast
+  max_parallel_scans: 8
+  quick_scan:
+    pebc: 0.1
+    min_file_size: 1024
+    config_version: v5
+    sample_segments: 3
+log:
+  level: INFO

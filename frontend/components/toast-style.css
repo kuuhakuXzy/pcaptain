@@ -1,0 +1,133 @@
+/* * {
+    padding: 0;
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    box-sizing: border-box;
+} */
+
+#toastBox {
+    position: absolute;
+    bottom: 30px;
+    right: 0px;
+    display: flex;
+    align-items: flex-end;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 20px;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    max-width: min(90vw, 350px);
+    width: auto;
+    background: #fff;
+    font-weight: 500;
+    margin: 15px 0;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+    position: relative;
+
+    transform: translateX(100%);
+    animation: moveleft 0.4s ease forwards;
+
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+@keyframes moveleft {
+    100% {
+        transform: translateX(0);
+    }
+}
+
+.toast .fa.fa-check {
+    margin: 0 20px;
+    font-size: 20px;
+    color: green;
+}
+
+.toast.success::after {
+    background: green !important;
+}
+
+.toast .fa.fa-window-close {
+    margin: 0 20px;
+    font-size: 20px;
+    color: red;
+}
+
+.toast.error::after {
+    background: red !important;
+}
+
+.toast .fa.fa-exclamation-triangle {
+    margin: 0 20px;
+    font-size: 20px;
+    color: orange;
+}
+
+.toast.warning::after {
+    background: orange !important;
+}
+
+.toast .fa.fa-exclamation-circle {
+    margin: 0 20px;
+    font-size: 20px;
+    color: dodgerblue;
+}
+
+.toast.not-found::after {
+    background: dodgerblue !important;
+}
+
+.toast span {
+    word-wrap: break-word;
+    word-break: break-word;
+    padding: 20px 10px 20px 0;
+}
+
+.toast::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 5px;
+    background: green;
+    animation: anim 4s linear forwards;
+}
+
+@keyframes anim {
+    100% {
+        width: 0;
+    }
+}
+
+.toast.hide {
+    opacity: 0;
+    transform: translateX(100%);
+}
+
+/* close icon */
+.toast .close-btn {
+    margin: 0 15px 0 0;
+    margin-left: auto;
+    cursor: pointer;
+    font-size: 25px;
+    color: #444;
+    opacity: 0.7;
+    padding: 0;
+    border: none;
+    background: none;
+    outline: none;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 20px;
+    height: 20px;
+}
+
+.toast .close-btn:hover {
+    opacity: 1;
+}

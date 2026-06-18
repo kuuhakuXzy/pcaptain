@@ -1,0 +1,17 @@
+# PCAP directory
+pcaps/
+
+AGENTS.md
+
+# git
+.git
+.gitignore
+
+venv/
+__pycache__/
+*.pyc
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp

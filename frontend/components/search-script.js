@@ -1,0 +1,1043 @@
+import { showToast } from "./toast-script.js";
+import {
+    API_PATH,
+    CHECK_SCAN_FILES_STATUS_INTERVAL,
+    MIN_QUERY_LENGTH,
+    SCAN_MODE_TEXT,
+    SERVER,
+    SERVER_HEALTH_CHECK_INTERVAL,
+    SERVER_SCANNING_FILE_STATUS,
+    TOAST_STATUS
+} from "./constant.js";
+import { openInfoModal } from "./info-modal.js";
+import { renderAlertBadge, toggleCompareSelection, showFileAlerts } from "./features-script.js";
+
+
+// --- STATE MANAGEMENT ---
+let currentPage = 1;
+let itemsPerPage = 5;
+let currentSortBy = "filename";
+let currentDescending = false;
+let currentFiles = []; // Store current page's files for copy functionality
+let scan_state = false; // Track whether scanning is active
+let scanStatusTimer = null; // Store the interval timer
+
+// --- UI HELPERS ---
+function displaySearchLoadingSpinner() {
+    const spinner = document.getElementById("spinnerSearchBtn");
+    const searchBtn = document.getElementById("searchBtn");
+    if(spinner) {
+        spinner.classList.remove("spinner-search-hidden");
+        spinner.classList.add("spinner-search-visible");
+    }
+    if(searchBtn) searchBtn.style.display = "none";
+}
+
+function disappearSearchLoadingSpinner() {
+    const spinner = document.getElementById("spinnerSearchBtn");
+    const searchBtn = document.getElementById("searchBtn");
+    if(spinner) {
+        spinner.classList.add("spinner-search-hidden");
+        spinner.classList.remove("spinner-search-visible");
+    }
+    if(searchBtn) searchBtn.style.display = "inline-block";
+}
+
+async function loadScanConfigTooltip() {
+    // Pull runtime scan configuration for the global tooltip.
+    const tooltipContent = document.getElementById("scanConfigTooltipContent");
+    if (!tooltipContent) {
+        return;
+    }
+    try {
+        const response = await axios.get(SERVER + API_PATH.SCAN_CONFIG_PATH);
+        const config = response.data || {};
+        const scanModeLabel = SCAN_MODE_TEXT[config.scan_mode] || "Full";
+        const pebcLabel =
+            config.scan_mode === "quick" && config.pebc !== null && config.pebc !== undefined && config.pebc !== ""
+                ? config.pebc
+                : "N/A";
+        const minFileSize = config.min_file_size || "0";
+        const configVersion = config.config_version || "v1";
+        if (config.scan_mode === "full") {
+            tooltipContent.textContent = `Scan Mode: ${scanModeLabel}`;
+        } else {
+            tooltipContent.textContent =
+                `Scan Mode: ${scanModeLabel}\n` +
+                `PEBC: ${pebcLabel}\n` +
+                `Min File Size: ${minFileSize}\n` +
+                `Config Version: ${configVersion}`;
+        }
+    } catch (err) {
+        tooltipContent.textContent = "Scan config unavailable";
+    }
+}
+
+//check scan status
+function startScanStatusPolling() {
+    if (scanStatusTimer) {
+        clearInterval(scanStatusTimer);
+        scanStatusTimer = null;
+    }
+    scanStatusTimer = setInterval(async () => {
+        try {
+            const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+            const status = apiResponse.data.state;
+            if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                  status === SERVER_SCANNING_FILE_STATUS.IDLE
+                ) {
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+                showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+            } 
+            else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                  disappearScanLoadingSpinner();
+                  clearInterval(scanStatusTimer);
+                  scanStatusTimer = null;
+                  showToast(TOAST_STATUS.ERROR, "Scan failed");
+            }
+        } catch (err) {
+            disappearScanLoadingSpinner();
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+    }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+}
+
+// Helper function
+function smartFetch() {
+    const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+    fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+}
+
+document.getElementById("searchBtn").addEventListener("click", () => {
+    const search = document.getElementById("searchInput").value.trim();
+
+    if (isSearchMode) {
+        return clearSearchAndShowAll();
+    }
+
+    if (!search) {
+        return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+    }
+
+    currentPage = 1; // Reset to page 1 on new search
+    fetchFiles();
+    setSearchMode(true);
+})
+
+const searchInput = document.getElementById("searchInput");
+const searchBtn = document.getElementById("searchBtn");
+
+// Search/Clear mode state
+let isSearchMode = false;
+
+function setSearchMode(on) {
+    isSearchMode = on;
+    if (!searchBtn) return;
+
+    if (on) {
+        searchBtn.textContent = "Clear";
+        searchBtn.title = "Clear search and show all files";
+    } else {
+        searchBtn.textContent = "Search";
+        searchBtn.title = "Search";
+    }
+}
+
+function clearSearchAndShowAll() {
+    searchInput.value = "";
+    currentPage = 1;
+
+    if (typeof hideSuggestion === "function") hideSuggestion();
+
+    setSearchMode(false);
+    fetchFiles(true); // show all files without reloading
+}
+
+searchInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+        const search = document.getElementById("searchInput").value.trim();
+        if (!search) {
+            return showToast(TOAST_STATUS.WARNING, "Please enter a file name or protocol");
+        }
+        currentPage = 1; // Reset to page 1 on new search
+        hideSuggestion();
+        fetchFiles();
+        setSearchMode(true);
+    }
+});
+
+const sortBySelect = document.getElementById("sortBy");
+const sortOrderSelect = document.getElementById("sortOrder");
+const limitSelect = document.getElementById("limitSelect");
+
+if (limitSelect) limitSelect.value = "5"; 
+if (sortBySelect) sortBySelect.value = "filename";    
+if (sortOrderSelect) sortOrderSelect.value = "false";
+
+loadScanConfigTooltip();
+
+// Listen to user's items per page
+if (limitSelect) {
+    limitSelect.addEventListener("change", (e) => {
+        itemsPerPage = parseInt(e.target.value);
+        currentPage = 1;
+        smartFetch();
+    });
+}
+
+if (sortBySelect) {
+    sortBySelect.addEventListener("change", (e) => {
+        currentSortBy = e.target.value;
+        currentPage = 1; 
+        smartFetch();
+    });
+}
+
+if (sortOrderSelect) {
+    sortOrderSelect.addEventListener("change", (e) => {
+        currentDescending = e.target.value === "true";
+        currentPage = 1; 
+        smartFetch();
+    });
+}
+
+const suggestionBox = document.getElementById("suggestionBox");
+document.addEventListener("click", (e) => {
+    if (!searchInput.contains(e.target) && !suggestionBox.contains(e.target)) {
+        hideSuggestion();
+    }
+});
+
+searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+        hideSuggestion();
+    }
+});
+
+searchInput.addEventListener("input", async () => {
+    const input = searchInput.value.toLowerCase().trim();
+    if (input.length < MIN_QUERY_LENGTH) {
+        hideSuggestion();
+        return;
+    }
+    await fetchSuggestion(input);
+});
+
+async function fetchSuggestion(input) {
+    try {
+        const apiResponse = await axios.get(
+            SERVER + API_PATH.SEARCH_SUGGESTION,
+            { params: { q: input } }
+        );
+        if (!apiResponse) {
+            showToast(TOAST_STATUS.ERROR, "Failed to fetch search suggestion")
+        }
+        renderSuggestion(input, apiResponse.data);
+    } catch (err) {
+        console.log("Error while fetching search suggestion: ", err);
+    }
+}
+
+function renderSuggestion(input, data) {
+    if (!data || !data.length) {
+        hideSuggestion();
+        return;
+    }
+    suggestionBox.innerHTML = "";
+    data.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "suggestion-item";
+        const regex = new RegExp(`(${escapeRegExp(input)})`, "gi");
+        const html = item.replace(regex, "<strong>$1</strong>");
+        div.innerHTML = html;
+
+        div.addEventListener("click", () => {
+            searchInput.value = item;
+            hideSuggestion();
+            currentPage = 1;
+            fetchFiles();
+        });
+
+        suggestionBox.appendChild(div);
+    });
+    suggestionBox.classList.remove("hidden");
+}
+
+function hideSuggestion() {
+    suggestionBox.classList.add("hidden");
+    suggestionBox.innerHTML = "";
+}
+
+function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Scan Popup
+document.getElementById("scanBtn").addEventListener("click", () => {
+    document.getElementById("scanModal").classList.remove("hidden");
+    document.getElementById("folderPickerSection")?.classList.add("hidden");
+});
+
+document.getElementById("closeModalBtn").addEventListener("click", () => {
+    document.getElementById("scanModal").classList.add("hidden");
+});
+
+function encodeFolderPathForUrl(folderPath) {
+    return folderPath
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+}
+
+async function loadPcapFolders() {
+    const folderSelect = document.getElementById("folderSelect");
+    const hint = document.getElementById("folderPickerHint");
+    if (!folderSelect) return;
+
+    folderSelect.innerHTML = '<option value="">Loading folders...</option>';
+    if (hint) hint.textContent = "";
+
+    try {
+        const res = await axios.get(SERVER + API_PATH.PCAP_FOLDERS_PATH);
+        const folders = res.data?.folders || [];
+        if (!folders.length) {
+            folderSelect.innerHTML = '<option value="">No folders found</option>';
+            return;
+        }
+
+        folderSelect.innerHTML = folders
+            .map((item) => {
+                const label = item.relative_path
+                    ? `${item.folder} (${item.file_count} files)`
+                    : `${item.folder} — all under ${item.root} (${item.file_count} files)`;
+                return `<option value="${item.relative_path}">${label}</option>`;
+            })
+            .join("");
+
+        const selected = folders.find((item) => item.relative_path) || folders[0];
+        if (hint && selected) {
+            hint.textContent = selected.relative_path
+                ? `Scans files under ${selected.relative_path}`
+                : "Scans all PCAP files in the configured root directory";
+        }
+    } catch (err) {
+        console.error("Failed to load PCAP folders", err);
+        folderSelect.innerHTML = '<option value="">Failed to load folders</option>';
+        showToast(TOAST_STATUS.ERROR, "Could not load folder list");
+    }
+}
+
+async function loadPcapConfigIntoModal() {
+    const container = document.getElementById("configPathsContent");
+    if (!container) return;
+
+    container.textContent = "Loading...";
+    try {
+        const res = await axios.get(SERVER + API_PATH.PCAP_CONFIG_PATH);
+        const data = res.data;
+        const displayPaths = (data.display_paths || []).map((p) => `<li>${p}</li>`).join("");
+        const rootPaths = (data.root_directories || []).map((p) => `<li>${p}</li>`).join("");
+        const extensions = (data.allowed_extensions || []).join(", ");
+
+        container.innerHTML = `
+            <dl class="config-path-list">
+                <dt>Host display path(s)</dt>
+                <dd><ul>${displayPaths || "<li>(none)</li>"}</ul></dd>
+                <dt>Container path(s)</dt>
+                <dd><ul>${rootPaths || "<li>(none)</li>"}</ul></dd>
+                <dt>Upload directory</dt>
+                <dd>${data.upload_directory || "(not set)"}</dd>
+                <dt>Allowed extensions</dt>
+                <dd>${extensions || "(none)"}</dd>
+            </dl>
+            <p class="config-description">${data.note || ""}</p>
+        `;
+    } catch (err) {
+        console.error("Failed to load PCAP config", err);
+        container.textContent = "Failed to load mount configuration.";
+        showToast(TOAST_STATUS.ERROR, "Could not load mount configuration");
+    }
+}
+
+document.getElementById("configBtn")?.addEventListener("click", async () => {
+    document.getElementById("configModal")?.classList.remove("hidden");
+    await loadPcapConfigIntoModal();
+});
+
+document.getElementById("closeConfigModalBtn")?.addEventListener("click", () => {
+    document.getElementById("configModal")?.classList.add("hidden");
+});
+
+document.getElementById("configModal")?.addEventListener("click", (event) => {
+    if (event.target.id === "configModal") {
+        event.target.classList.add("hidden");
+    }
+});
+
+// Scan all button
+function displayScanLoadingSpinner() {
+    const spinner = document.getElementById("spinnerScanBtn");
+    const scanBtn = document.getElementById("scanBtn");
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    if(spinner) {
+        spinner.classList.remove("spinner-scan-hidden");
+        spinner.classList.add("spinner-scan-visible");
+    }
+    if(scanBtn) scanBtn.style.display = "none";
+    if (cancelBtn) cancelBtn.disabled = false;
+}
+
+function disappearScanLoadingSpinner() {
+    const spinner = document.getElementById("spinnerScanBtn");
+    const scanBtn = document.getElementById("scanBtn");
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    if(spinner) {
+        spinner.classList.add("spinner-scan-hidden");
+        spinner.classList.remove("spinner-scan-visible");
+    }
+    if(scanBtn) scanBtn.style.display = "inline-block";
+    if (cancelBtn) cancelBtn.disabled = true;
+}
+
+document.getElementById("scanAllBtn").addEventListener("click", async () => {
+    const scanModal = document.getElementById("scanModal");
+    scanModal.classList.add("hidden");
+    await scanFiles();
+});
+
+document.getElementById("cancelScanBtn").addEventListener("click", async () => {
+    try {
+        await axios.post(SERVER + API_PATH.SCAN_CANCEL_PATH);
+        if (scanStatusTimer) {
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+        disappearScanLoadingSpinner();
+        showToast(TOAST_STATUS.INFO, "Scan cancelled");
+    } 
+    catch (err) {
+        showToast(TOAST_STATUS.ERROR, "Failed to cancel scan");
+    }
+  });
+
+
+const chooseDirBtn = document.getElementById("chooseDirBtn");
+const folderPickerSection = document.getElementById("folderPickerSection");
+const folderSelect = document.getElementById("folderSelect");
+
+if (chooseDirBtn && folderPickerSection) {
+    chooseDirBtn.addEventListener("click", async () => {
+        folderPickerSection.classList.remove("hidden");
+        await loadPcapFolders();
+    });
+}
+
+folderSelect?.addEventListener("change", () => {
+    const hint = document.getElementById("folderPickerHint");
+    const selectedOption = folderSelect.options[folderSelect.selectedIndex];
+    if (hint && selectedOption) {
+        const rel = folderSelect.value;
+        hint.textContent = rel
+            ? `Scans files under ${rel}`
+            : "Scans all PCAP files in the configured root directory";
+    }
+});
+
+document.getElementById("scanFolderBtn")?.addEventListener("click", async () => {
+    const scanModal = document.getElementById("scanModal");
+    const targetFolder = folderSelect?.value ?? "";
+    scanModal?.classList.add("hidden");
+    await scanFiles(targetFolder);
+});
+
+async function serverHealthCheck() {
+    const statusSignal = document.querySelector(".status-signal");
+    if (!statusSignal) return;
+
+    try {
+        const apiResponse = await axios.get(SERVER + API_PATH.SERVER_HEALTH_CHECK_PATH);
+        if (apiResponse.data.status !== "OK") {
+            statusSignal.innerHTML = `<i class="fa fa-circle"></i><span>Server Error</span>`;
+        }
+    } catch (err) {
+        console.log("Health check failed", err);
+        statusSignal.innerHTML = `<i class="fa fa-circle"></i><span>Server Error</span>`;
+    }
+}
+serverHealthCheck();
+setInterval(serverHealthCheck, SERVER_HEALTH_CHECK_INTERVAL);
+
+// --- SCAN STATE MANAGEMENT ---
+function manageScanState() {
+    const cancelBtn = document.getElementById("cancelScanBtn");
+    
+    if (scan_state) {
+        // Start interval polling if not already running
+        if (!scanStatusTimer) {
+            scanStatusTimer = setInterval(async () => {
+                try {
+                    const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+                    const status = apiResponse.data.state;
+                    
+                    if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                        status === SERVER_SCANNING_FILE_STATUS.IDLE
+                    ) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                    } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                        scan_state = false;
+                        manageScanState(); // This will clear the interval
+                        disappearScanLoadingSpinner();
+                        if (cancelBtn) cancelBtn.classList.add("hidden");
+                        showToast(TOAST_STATUS.ERROR, "Scan failed");
+                    }
+                } catch (err) {
+                    console.error("Error checking scan status:", err);
+                    scan_state = false;
+                    manageScanState(); // This will clear the interval
+                    disappearScanLoadingSpinner();
+                    if (cancelBtn) cancelBtn.classList.add("hidden");
+                }
+            }, CHECK_SCAN_FILES_STATUS_INTERVAL);
+        }
+    } else {
+        // Stop interval polling
+        if (scanStatusTimer) {
+            clearInterval(scanStatusTimer);
+            scanStatusTimer = null;
+        }
+    }
+}
+
+async function scanFiles(targetFolder = null) {
+    displayScanLoadingSpinner();
+
+    if (scanStatusTimer) {
+        clearInterval(scanStatusTimer);
+        scanStatusTimer = null;
+    }
+
+    try {
+        let scanUrl = SERVER + API_PATH.PCAP_REINDEX_PATH;
+        if (targetFolder !== null && targetFolder !== "") {
+            scanUrl += "/" + encodeFolderPathForUrl(targetFolder);
+        }
+        const apiResponse = await axios.post(scanUrl);
+        if (!apiResponse) {
+            disappearScanLoadingSpinner();
+            return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
+        }
+        startScanStatusPolling();
+        //const timer = setInterval(async () => {
+        /*scanStatusTimer = setInterval(async () => {
+            try {
+                const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+                const status = apiResponse.data.state;
+                if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                    status === SERVER_SCANNING_FILE_STATUS.IDLE
+                ) {
+                    disappearScanLoadingSpinner();
+                    clearInterval(scanStatusTimer);
+                    scanStatusTimer = null;
+                    showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                    disappearScanLoadingSpinner();
+                    clearInterval(scanStatusTimer);
+                    showToast(TOAST_STATUS.ERROR, "Scan failed");
+                }
+            } catch (err) {
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+            }
+        }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
+    } catch (err) {
+        disappearScanLoadingSpinner();
+        if (cancelBtn) cancelBtn.classList.add("hidden");
+        console.error("API error: ", err);
+        showToast(TOAST_STATUS.ERROR, "Error triggering scan");
+    }
+}
+
+async function syncScanStateOnLoad() {
+    try {
+        const res = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+        if (res.data.state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
+            displayScanLoadingSpinner();
+            startScanStatusPolling();
+        } 
+        else {
+            disappearScanLoadingSpinner();
+        }
+    } catch (_) {
+          // keep default UI
+    }
+}
+
+syncScanStateOnLoad();
+fetchFiles(true); // Load initial files on page load
+
+window.refreshFileList = () => {
+    const hasQuery = document.getElementById("searchInput")?.value.trim() !== "";
+    fetchFiles(!hasQuery);
+};
+
+async function fetchFiles() {
+    const search = document.getElementById("searchInput").value.toLowerCase().trim();
+
+    try {
+        displaySearchLoadingSpinner();
+        
+        const params = { protocol: search, page: currentPage, limit: itemsPerPage, sort_by: currentSortBy, descending: currentDescending };
+        
+        const apiResponse = await axios.get(
+            SERVER + API_PATH.PCAP_SEARCHING_PATH,
+            { params }
+        );
+
+        disappearSearchLoadingSpinner();
+
+        if (!apiResponse || !apiResponse.data) {
+            showToast(TOAST_STATUS.ERROR, "Failed to get response");
+            return;
+        }
+
+        // Object response { total, page, data: [] }
+        const responseData = apiResponse.data;
+        const files = responseData.data; 
+        const totalItems = responseData.total;
+
+        currentFiles = files; // Store current files for copy functionality
+
+        renderTable(files);
+        updatePaginationControls(totalItems);
+
+    } catch (err) {
+        disappearSearchLoadingSpinner();
+        console.error("API error: ", err);
+        showToast(TOAST_STATUS.ERROR, "Error while searching files");
+    }
+}
+
+// Pagination for search results
+function updatePaginationControls(totalItems) {
+    const container = document.getElementById("paginationContainer");
+    if (!container) return;
+
+    container.innerHTML = ""; 
+
+    if (totalItems === 0) return;
+
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    const buttonsGroup = document.createElement("div");
+    buttonsGroup.className = "pagination-buttons";
+
+    const createBtn = (text, pageNum, isActive = false, isDisabled = false) => {
+        const btn = document.createElement("button");
+        btn.innerHTML = text; // Use innerHTML for arrows
+        btn.className = "page-btn";
+        if (isActive) btn.classList.add("active");
+        if (isDisabled) btn.disabled = true;
+
+        if (!isDisabled && !isActive && pageNum !== null) {
+            btn.addEventListener("click", () => {
+                currentPage = pageNum;
+                const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+                fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+            });
+        }
+        buttonsGroup.appendChild(btn);
+    };
+
+    const createEllipsis = () => {
+        const span = document.createElement("span");
+        span.className = "pagination-ellipsis";
+        span.innerText = "...";
+        buttonsGroup.appendChild(span);
+    };
+
+    // previouis button
+    createBtn(`<i class="fa fa-chevron-left"></i>`, currentPage - 1, false, currentPage === 1);
+
+    const maxVisibleButtons = 5; // How many numbered buttons to show max
+
+    if (totalPages <= 7) {
+        for (let i = 1; i <= totalPages; i++) {
+            createBtn(i, i, i === currentPage);
+        }
+    } else {
+        // Always show first page
+        createBtn(1, 1, 1 === currentPage);
+
+        // If current is far from start
+        if (currentPage > 4) {
+            createEllipsis();
+        }
+
+        // Neighbors Logic
+        let start = Math.max(2, currentPage - 1);
+        let end = Math.min(totalPages - 1, currentPage + 1);
+
+        // Adjust if at the very start or end
+        if (currentPage <= 4) {
+            end = 5;
+        } else if (currentPage >= totalPages - 3) {
+            start = totalPages - 4;
+        }
+
+        for (let i = start; i <= end; i++) {
+            createBtn(i, i, i === currentPage);
+        }
+
+        // Logic: if current is far from end
+        if (currentPage < totalPages - 3) {
+            createEllipsis();
+        }
+
+        // Always show last page
+        createBtn(totalPages, totalPages, totalPages === currentPage);
+    }
+
+    // next button
+    createBtn(`<i class="fa fa-chevron-right"></i>`, currentPage + 1, false, currentPage === totalPages);
+
+    // Drop down of pages on the right side
+    const infoGroup = document.createElement("div");
+    infoGroup.className = "pagination-info";
+
+    const labelPage = document.createElement("span");
+    labelPage.innerText = "Page";
+    infoGroup.appendChild(labelPage);
+
+    const select = document.createElement("select");
+    select.className = "page-select";
+
+    for (let i = 1; i <= totalPages; i++) {
+        const option = document.createElement("option");
+        option.value = i;
+        option.text = i;
+        if (i === currentPage) option.selected = true;
+        select.appendChild(option);
+    }
+
+    select.addEventListener("change", (e) => {
+        currentPage = parseInt(e.target.value);
+        const hasQuery = document.getElementById("searchInput").value.trim() !== "";
+        fetchFiles(!hasQuery); // If there's a query, treat it as a search; if not, show all
+    });
+    infoGroup.appendChild(select);
+
+    const labelTotal = document.createElement("span");
+    labelTotal.innerText = `of ${totalPages}`;
+    infoGroup.appendChild(labelTotal)
+
+    container.appendChild(buttonsGroup);
+    container.appendChild(infoGroup);
+}
+
+function formatDate(timestamp) {
+    if (!timestamp) return "N/A";
+    const date = new window.Date(parseFloat(timestamp) * 1000);
+    return date.toLocaleString(); 
+}
+
+// --- NAMED EVENT HANDLERS ---
+function handleInfoButtonClick(e) {
+    e.stopPropagation();
+    const index = e.target.id.split('-')[1];
+    const file = currentFiles[index];
+    openInfoModal(file, e);
+}
+
+function handleCopyAllPaths() {
+    const paths = currentFiles.map(file => file.path).join('\n');
+    navigator.clipboard.writeText(paths).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "All paths copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy paths");
+    });
+}
+
+function handleCopyPathClick(e) {
+    if (!e.target.classList.contains('copy-path-btn')) return;
+    e.stopPropagation();
+    const path = e.target.getAttribute('data-path');
+    navigator.clipboard.writeText(path).then(() => {
+        showToast(TOAST_STATUS.SUCCESS, "Path copied to clipboard");
+    }).catch(err => {
+        showToast(TOAST_STATUS.ERROR, "Failed to copy path");
+    });
+}
+
+
+// --- ATTACH STATIC LISTENERS ONCE ---
+document.addEventListener("DOMContentLoaded", () => {
+    const copyAllBtn = document.getElementById("copyAllPathsBtn");
+    if (copyAllBtn) {
+        copyAllBtn.addEventListener("click", handleCopyAllPaths);
+    }
+    // When DOM is ready, check current scan state and update UI
+    checkScanStateOnReady();
+});
+
+async function checkScanStateOnReady() {
+    try {
+        const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+        if (!apiResponse || !apiResponse.data) return;
+        const state = apiResponse.data.state;
+
+        const spinner = document.getElementById("spinnerScanBtn");
+        const scanBtn = document.getElementById("scanBtn");
+        const cancelBtn = document.getElementById("cancelScanBtn");
+
+        if (state === SERVER_SCANNING_FILE_STATUS.RUNNING) {
+            if (spinner) {
+                spinner.classList.remove("spinner-scan-hidden");
+                spinner.classList.add("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "none";
+            if (cancelBtn) cancelBtn.classList.remove("hidden");
+            
+            // Set scan_state and start interval polling
+            scan_state = true;
+            manageScanState();
+        } else {
+            if (spinner) {
+                spinner.classList.add("spinner-scan-hidden");
+                spinner.classList.remove("spinner-scan-visible");
+            }
+            if (scanBtn) scanBtn.style.display = "inline-block";
+            if (cancelBtn) cancelBtn.classList.add("hidden");
+        }
+    } catch (err) {
+        console.error("Failed to fetch scan state:", err);
+    }
+}
+
+function getScanModeBadgeHtml(file) {
+    const scanModeRaw = (file.scan_mode || "").toLowerCase();
+    const isQuick = scanModeRaw === "quick";
+    const isFast = scanModeRaw === "fast";
+    const pebcValue =
+        isQuick && file.pebc !== undefined && file.pebc !== null && String(file.pebc).trim() !== ""
+            ? String(file.pebc).trim()
+            : "N/A";
+
+    let tooltipText = "Full Scan";
+    let badgeClasses = "scan-mode-icon text-green-600";
+    let iconHtml = `<span class="scan-mode-icon scan-mode-icon-full" aria-hidden="true">✓</span>`;
+
+    if (isQuick) {
+        tooltipText = `Quick Scan (${pebcValue})`;
+        badgeClasses = "scan-mode-icon text-yellow-600";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-quick" aria-hidden="true">⚡</span>`;
+    } else if (isFast) {
+        tooltipText = "Fast Scan";
+        badgeClasses = "scan-mode-icon";
+        iconHtml = `<span class="scan-mode-icon scan-mode-icon-fast" aria-hidden="true">
+                        <i class="fa fa-rocket"></i>
+                    </span>`;
+    }
+
+    return `
+        <span class="${badgeClasses}" title="${tooltipText}" aria-label="${tooltipText}">
+            ${iconHtml}
+        </span>
+    `;
+}
+
+function parseSearchShorthand(raw) {
+    // Supports: "sip !tcp !udp", "sip, !tcp", multiple spaces
+    const s = (raw || "").trim();
+    if (!s) return { include: [], exclude: [] };
+
+    const tokens = s
+        .split(/[\s,]+/g)
+        .map(t => t.trim())
+        .filter(Boolean);
+
+    const include = [];
+    const exclude = [];
+
+    for (const t of tokens) {
+        if (t.startsWith("!")) {
+            const v = t.slice(1).trim();
+            if (v) exclude.push(v);
+        } else {
+            include.push(t);
+        }
+    }
+
+    const dedupCaseInsensitive = (items) => {
+        const uniqueItems = [];
+        const seenNormalized = new Set();
+
+        for (const item of items) {
+            const normalizedKey = item.toLowerCase();
+
+            // Skip empty strings and anything we've already seen
+            if (!normalizedKey || seenNormalized.has(normalizedKey)) continue;
+
+            seenNormalized.add(normalizedKey);
+            uniqueItems.push(item);
+        }
+
+        return uniqueItems;
+    };
+
+    return { include: dedupCaseInsensitive(include), exclude: dedupCaseInsensitive(exclude) };
+}
+
+function toTsharkDisplayFilterFromShorthand(raw) {
+    const { include, exclude } = parseSearchShorthand(raw);
+
+    // If user only types "!tcp" (no include), treat as "not tcp"
+    const includeExpr = include.length
+        ? include.map(p => `(${p})`).join(" or ")
+        : "";
+
+    const excludeExpr = exclude.length
+        ? exclude.map(p => `(${p})`).join(" or ")
+        : "";
+
+    if (includeExpr && excludeExpr) {
+        return `((${includeExpr}) and not (${excludeExpr}))`;
+    }
+    if (includeExpr) {
+        return `(${includeExpr})`;
+    }
+    if (excludeExpr) {
+        return `(not (${excludeExpr}))`;
+    }
+    return "";
+}
+
+function buildDownloadUrlWithDisplayFilter(file) {
+    const input = document.getElementById("searchInput");
+    const raw = (input ? input.value : "").trim();
+
+    // No query => download original
+    if (!raw) return file.download_url;
+
+    const filter = toTsharkDisplayFilterFromShorthand(raw);
+    // If convert somehow empty => fallback original
+    if (!filter) return file.download_url;
+
+    const params = new URLSearchParams();
+    params.set("filter", filter);
+    return `${file.download_url}?${params.toString()}`;
+}
+
+
+function getFileHash(file) {
+    const url = file.download_url || "";
+    const match = url.match(/\/pcaps\/download\/([a-f0-9]+)/i);
+    return match ? match[1] : null;
+}
+
+function renderTable(files) {
+    const tbody = document.getElementById('resultBody');
+    tbody.innerHTML = '';
+
+    if (!files || files.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">No result found</td></tr>';
+        return;
+    }
+
+    files.forEach((file, index) => {
+        const tr = document.createElement('tr');
+        
+        const btnId = `infoBtn-${index}`;
+        const fileHash = getFileHash(file);
+        const alertHtml = renderAlertBadge(file);
+
+        tr.innerHTML = `
+            <td data-label="Compare" class="compare-col">
+                ${fileHash ? `<input type="checkbox" class="compare-checkbox" data-hash="${fileHash}" />` : ""}
+            </td>
+            <td data-label="Filename">
+                <a href="${buildDownloadUrlWithDisplayFilter(file)}" class="file-link" download>
+                    ${file.filename}
+                </a>
+                ${alertHtml}
+            </td>
+            <td data-label="Info"> 
+                <button id="${btnId}" class="info-btn" title="View Details">i</button>
+            </td>
+            <td data-label="Mode" class="mode-cell">
+                ${getScanModeBadgeHtml(file)}
+            </td>
+            <td data-label="Path">
+                ${file.path} 
+                <i class="fa fa-copy copy-path-btn" data-path="${file.path}" title="Copy path"></i>
+            </td>
+            <td data-label="Matched">
+                ${renderMatchedHTML(file)}
+            </td>
+            <td data-label="Size">${formatFileSize(file.size_bytes)}</td>
+            <td data-label="Packet">${file.total_packets || '-'}</td>
+            
+        `;
+        tbody.appendChild(tr);
+
+        const btn = tr.querySelector(`#${btnId}`);
+        if (btn) {
+            btn.addEventListener("click", handleInfoButtonClick);
+        }
+
+        const checkbox = tr.querySelector(".compare-checkbox");
+        if (checkbox) {
+            checkbox.addEventListener("change", (e) => {
+                const ok = toggleCompareSelection(fileHash, e.target.checked);
+                if (!ok) e.target.checked = false;
+            });
+        }
+
+        const alertBadge = tr.querySelector(".alert-badge");
+        if (alertBadge) {
+            alertBadge.addEventListener("click", (e) => {
+                e.preventDefault();
+                showFileAlerts(file);
+            });
+        }
+    });
+
+    tbody.addEventListener('click', handleCopyPathClick);
+}
+
+// Render matched protocols: show first two, and a (+N) hover tooltip for the rest
+function renderMatchedHTML(file) {
+    const matched = file.matched_protocols || [];
+    if (!matched.length) return '-';
+
+    const visibleCount = 1;
+    const visible = matched
+        .slice(0, visibleCount)
+        .map(p => `<span class="proto-badge" title="Matched protocol">${p.toUpperCase()}</span>`)
+        .join(' ');
+
+    if (matched.length <= visibleCount) return visible;
+
+    const remaining = matched.length - visibleCount;
+    const remainingList = matched.map(p => p.toUpperCase()).join(', ').replace(/"/g, '&quot;');
+    const moreHtml = `<span class="more-matched" title="${remainingList}">(+${remaining})</span>`;
+    return `${visible} ${moreHtml}`;
+}
+
+
+function formatFileSize(bytes) {
+    bytes = parseInt(bytes);
+    if (!bytes || bytes === 0) return '0 Bytes';
+    const units = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const k = 1024;
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const size = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
+    return `${size} ${units[i]}`;
+}

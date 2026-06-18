@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="search-style.css">
+    <link rel="stylesheet" href="toast-style.css">
+    <link rel="stylesheet" href="config-modal-style.css">
+    <link rel="stylesheet" href="info-modal-style.css">
+    <link rel="stylesheet" href="features-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>PCAP Searching</title>
+    <!-- Axios CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        Promise.all([
+            fetch('info-modal.html').then(r => r.text())
+        ])
+        .then(([infoHtml]) => {
+            const container = document.querySelector('.container');
+            container.insertAdjacentHTML('beforeend', infoHtml);
+            document.dispatchEvent(new Event("dynamic-dom-ready"));
+        })
+        .catch(err => {
+            console.error('Failed to load dynamic fragments', err);
+        });
+    </script>
+</head>
+
+<body>
+    <div class="container">
+        <h1>PCAPTAIN TOOL</h1>
+        <div class="search-toolbar">
+            <div class="search-row">
+                <div class="search-input-wrap">
+                    <input id="searchInput" type="text" placeholder="Search filename or protocol (e.g. eth !sip)" required autocomplete="off" />
+                    <div id="suggestionBox" class="suggestion-box hidden"></div>
+                </div>
+                <button id="searchBtn">Search</button>
+                <div id="spinnerSearchBtn" class="spinner-search-hidden"></div>
+            </div>
+            <div class="action-row">
+                <button id="scanBtn">Scan</button>
+                <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
+                <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
+                <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+                    <i class="fa fa-bar-chart"></i>
+                </button>
+                <button id="configBtn" class="config-btn" title="Mount directory configuration">
+                    <i class="fa fa-cog"></i>
+                </button>
+                <button id="uploadBtn" class="feature-btn" title="Upload PCAP">Upload</button>
+                <button id="compareBtn" class="feature-btn" disabled title="Select 2 files to compare">
+                    Compare <span id="compareCount" class="compare-selected-count"></span>
+                </button>
+                <button id="alertsBtn" class="feature-btn" title="Alert Rules">Alerts</button>
+                <button id="clustersBtn" class="feature-btn" title="Cluster similar files">Clusters</button>
+                <div class="scan-config-tooltip" id="scanConfigTooltip">
+                    <i class="fa fa-info-circle" aria-hidden="true"></i>
+                    <div class="scan-config-tooltip-content" id="scanConfigTooltipContent">
+                        Loading scan config...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status signal -->
+        <div class="status-signal">        </div>
+
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon"><i class="fa fa-cloud-upload"></i></div>
+            <p><strong>Drop PCAP file here</strong> or click to upload</p>
+            <p>Supported: .pcap, .pcapng, .cap (max 200 MB)</p>
+            <input type="file" id="uploadInput" accept=".pcap,.pcapng,.cap" hidden>
+            <div class="upload-progress" id="uploadProgress">
+                <div class="upload-progress-bar" id="uploadProgressBar"></div>
+            </div>
+        </div>
+
+        <!-- Control setting for sorting and pagination -->
+        <div class="controls-container">
+            <div class="control-group">
+                <label for="sortBy">Sort by:</label>
+                <select id="sortBy" class="control-select">
+                    <option value="filename">Name</option>
+                    <option value="size_bytes">Size</option>
+                    <option value="protocol_packet_count">Packet Count</option>
+                </select>
+                
+                <select id="sortOrder" class="control-select">
+                    <option value="false">Ascending</option>
+                    <option value="true">Descending</option>
+                </select>
+
+                <label for="limitSelect">Show:</label>
+                <select id="limitSelect" class="control-select">
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                    <option value="15">15</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                </select>
+            </div>
+
+            <!-- <div class="control-group">
+                <button id="prevBtn" class="pagination-btn" disabled>&lt; Prev</button>
+                <span id="pageInfo">Page 1</span>
+                <button id="nextBtn" class="pagination-btn" disabled>Next &gt;</button>
+            </div> -->
+        </div>
+
+        <div class="table-wrapper">
+            <table id="resultTable">
+                <thead>
+                    <tr>
+                        <th class="compare-col"><i class="fa fa-check-square-o" title="Select to compare"></i></th>
+                        <th>Filename</th>
+                        <th class="thInfo">Info</th>
+                        <th class="thMode">Mode</th>
+                        <th>Path <i class="fa fa-copy copy-path-btn" id="copyAllPathsBtn" title="Copy all paths"></i></th>
+                        <th>Matched</th>
+                        <th>Size</th>
+                        <th>Packet</th>
+                        
+                    </tr>
+                </thead>
+                <tbody id="resultBody">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination PCAP search results -->
+        <div id="paginationContainer" class="pagination-container">
+        </div>
+
+        <div id="scanModal" class="modal hidden">
+            <div class="modal-content">
+                <h2>Select an option</h2>
+                <div class="button-group">
+                    <button id="scanAllBtn" class="action-btn">All</button>
+                    <button id="chooseDirBtn" class="action-btn">Choose Folder</button>
+                </div>
+                <div id="folderPickerSection" class="folder-picker hidden">
+                    <label for="folderSelect">Folder</label>
+                    <select id="folderSelect" class="control-select folder-select"></select>
+                    <p id="folderPickerHint" class="folder-picker-hint"></p>
+                    <button id="scanFolderBtn" class="action-btn primary">Scan Selected Folder</button>
+                </div>
+                <button id="closeModalBtn" class="close-btn">Close</button>
+            </div>
+        </div>
+
+        <div id="configModal" class="modal hidden">
+            <div class="modal-content config-modal-content">
+                <div class="modal-header">
+                    <h2>Mount Configuration</h2>
+                    <button id="closeConfigModalBtn" class="close-btn" type="button" aria-label="Close">&times;</button>
+                </div>
+                <div class="config-content">
+                    <p class="config-description">
+                        Paths are read-only. To change mounts, edit <code>.env</code> and run
+                        <code>docker compose up -d</code>.
+                    </p>
+                    <div id="configPathsContent">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Modal -->
+        <div id="compareModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2>Compare PCAP Files</h2>
+                <div id="compareResult"><p>Select 2 files and click Compare</p></div>
+                <div class="feature-modal-actions">
+                    <button id="runCompareBtn" class="feature-btn primary">Refresh</button>
+                    <button id="closeCompareModal" class="feature-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Modal -->
+        <div id="alertsModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2>Alert Rules</h2>
+                <p style="font-size:13px;color:#666;margin:0 0 12px">
+                    Rules are checked automatically when files are scanned. Click "Re-evaluate All" to apply rules to existing files.
+                </p>
+                <table class="rules-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Severity</th>
+                            <th>On</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="rulesTableBody"></tbody>
+                </table>
+                <div class="rule-form">
+                    <h3 style="font-size:14px;margin:0 0 8px">Add Rule</h3>
+                    <div class="form-row">
+                        <input id="ruleName" placeholder="Rule name" />
+                        <select id="ruleType">
+                            <option value="protocol_pct_above">Protocol % above</option>
+                            <option value="filename_contains">Filename contains</option>
+                            <option value="protocol_present">Protocol present</option>
+                            <option value="size_above">Size above (bytes)</option>
+                        </select>
+                        <select id="ruleSeverity">
+                            <option value="high">High</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <input id="ruleProtocol" placeholder="Protocol (e.g. ssh)" />
+                        <input id="ruleKeyword" placeholder="Keyword (e.g. hydra,mirai)" />
+                        <input id="ruleThreshold" type="number" placeholder="Threshold (e.g. 80)" />
+                        <button id="addRuleBtn" class="feature-btn primary">Add</button>
+                    </div>
+                </div>
+                <div class="feature-modal-actions">
+                    <button id="evalAllAlertsBtn" class="feature-btn">Re-evaluate All</button>
+                    <button id="closeAlertsModal" class="feature-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analysis Modal (IOC + Timeline) -->
+        <div id="analysisModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2 id="analysisTitle">Analysis</h2>
+                <div class="analysis-tabs">
+                    <button type="button" class="analysis-tab active" data-tab="ioc">IOC</button>
+                    <button type="button" class="analysis-tab" data-tab="timeline">Timeline</button>
+                </div>
+                <div id="panel-ioc" class="analysis-panel">
+                    <div id="iocContent"><p>Loading...</p></div>
+                </div>
+                <div id="panel-timeline" class="analysis-panel hidden">
+                    <div id="timelineContent"><p>Loading...</p></div>
+                </div>
+                <div class="feature-modal-actions">
+                    <button id="closeAnalysisModal" class="feature-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Similar Files Modal -->
+        <div id="similarModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2>Similar Files</h2>
+                <div id="similarContent"></div>
+                <div class="feature-modal-actions">
+                    <button type="button" class="feature-btn" onclick="document.getElementById('similarModal').classList.add('hidden')">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Clusters Modal -->
+        <div id="clustersModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2>File Clusters</h2>
+                <p style="font-size:13px;color:#666;margin:0 0 12px">
+                    Groups files with similar protocol profiles. Lower threshold = larger groups.
+                </p>
+                <div class="cluster-controls">
+                    <label>Similarity threshold: <input type="number" id="clusterThreshold" value="70" min="40" max="95" step="5" /></label>
+                    <button id="refreshClustersBtn" class="feature-btn primary">Refresh</button>
+                </div>
+                <div id="clustersContent"><p>Loading...</p></div>
+                <div class="feature-modal-actions">
+                    <button id="closeClustersModal" class="feature-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="constant.js"></script>
+    <script type="module" src="toast-script.js"></script>
+    <script type="module" src="analysis-script.js"></script>
+    <script type="module" src="search-script.js"></script>
+    <script type="module" src="features-script.js"></script>
+</body>
+
+</html>
