@@ -79,3 +79,13 @@ def load_config(config_path: str = "/app/config/config.yaml") -> AppConfig:
     except Exception as e:
         print(f"[config] Error loading config: {e}")
         raise
+
+
+def map_path_to_display(file_path: str, pcap_config: PcapConfig) -> str:
+    """Replace internal container path with host display path when configured."""
+    if not file_path:
+        return file_path
+    display = pcap_config.prefix_str or pcap_config.root_directory
+    if display and pcap_config.root_directory:
+        return file_path.replace(pcap_config.root_directory, display, 1)
+    return file_path
