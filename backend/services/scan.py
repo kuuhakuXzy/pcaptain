@@ -45,6 +45,16 @@ TMP_KEY_TTL_SECONDS = 5
 # Inscrease if the server has more CPU/RAM
 MAX_PARALLEL_SCANS = 4
 
+PATH_INDEX_PREFIX = "pcap:path"
+
+
+def _path_index_key(file_path: str) -> str:
+    return f"{PATH_INDEX_PREFIX}:{file_path.replace(chr(92), '/')}"
+
+
+def _mtime_index_value(mtime: float) -> str:
+    return str(int(mtime))
+
 
 def parse_size_bytes(value: Optional[str], default: int) -> int:
     if value is None:
@@ -175,6 +185,34 @@ async def calculate_sha256(file_path: str) -> str:
     return await asyncio.to_thread(calculate_sha256_sync, file_path)
 
 
+async def _write_path_index(
+    redis_client,
+    file_path: str,
+    file_hash: str,
+    file_size: int,
+    file_mtime: float,
+    scan_mode: str,
+    pebc: Optional[float],
+    config_version: str,
+) -> None:
+    await asyncio.to_thread(
+        redis_client.hset,
+        _path_index_key(file_path),
+        mapping={
+            "file_hash": file_hash,
+            "size_bytes": str(file_size),
+            "last_modified": _mtime_index_value(file_mtime),
+            "scan_mode": scan_mode,
+            "pebc": "" if pebc is None else str(pebc),
+            "config_version": config_version,
+        },
+    )
+
+
+async def _delete_path_index(redis_client, file_path: str) -> None:
+    await asyncio.to_thread(redis_client.delete, _path_index_key(file_path))
+
+
 def calculate_protocol_percentages(protocol_counts: Dict[str, int], packets_scanned: int) -> Dict[str, float]:
     """Calculate protocol presence percentage relative to scanned packets."""
     if not protocol_counts:
@@ -291,6 +329,99 @@ class ScanService:
 
     scan_cancel_event = Event()
     scan_process: Dict[str, Optional[subprocess.Popen]] = {"tshark": None}
+
+    async def try_fast_skip_by_path(
+        self,
+        *,
+        redis_client,
+        file_path: str,
+        file_size: int,
+        file_mtime: float,
+        current_scan_mode: ScanMode,
+        current_pebc: Optional[float],
+        current_config_version: str,
+    ) -> bool:
+        """Skip unchanged files using path+size+mtime fingerprint (no file read)."""
+        path_key = _path_index_key(file_path)
+        stored = await asyncio.to_thread(redis_client.hgetall, path_key)
+        if not stored:
+            return False
+
+        try:
+            stored_size = int(stored.get("size_bytes", -1))
+            stored_mtime = int(stored.get("last_modified", -1))
+        except (TypeError, ValueError):
+            return False
+
+        if stored_size != file_size or stored_mtime != int(file_mtime):
+            return False
+
+        file_hash = stored.get("file_hash")
+        if not file_hash:
+            return False
+
+        pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+        if not await asyncio.to_thread(redis_client.exists, pcap_key):
+            await _delete_path_index(redis_client, file_path)
+            return False
+
+        stored_scan_mode = stored.get("scan_mode")
+        stored_pebc = _parse_float(stored.get("pebc"))
+        stored_config_version = stored.get("config_version")
+
+        if should_rescan_file(
+            current_scan_mode=current_scan_mode.value,
+            current_pebc=current_pebc,
+            current_config_version=current_config_version,
+            stored_scan_mode=stored_scan_mode,
+            stored_pebc=stored_pebc,
+            stored_config_version=stored_config_version,
+        ):
+            return False
+
+        now = time.time()
+        await asyncio.to_thread(
+            redis_client.hset,
+            pcap_key,
+            mapping={"last_scanned": now},
+        )
+        await _write_path_index(
+            redis_client,
+            file_path,
+            file_hash,
+            file_size,
+            file_mtime,
+            current_scan_mode.value,
+            current_pebc,
+            current_config_version,
+        )
+        logger.info("Fast-skipped %s (path fingerprint unchanged)", file_path)
+        return True
+
+    async def resolve_file_hash(
+        self,
+        file_path: str,
+        file_size: int,
+        file_mtime: float,
+        redis_client,
+    ) -> str:
+        """Reuse hash from path index when fingerprint matches, else read full file."""
+        path_key = _path_index_key(file_path)
+        stored = await asyncio.to_thread(redis_client.hgetall, path_key)
+        if stored:
+            try:
+                if (
+                    int(stored.get("size_bytes", -1)) == file_size
+                    and int(stored.get("last_modified", -1)) == int(file_mtime)
+                ):
+                    file_hash = stored.get("file_hash")
+                    if file_hash:
+                        pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+                        if await asyncio.to_thread(redis_client.exists, pcap_key):
+                            return file_hash
+            except (TypeError, ValueError):
+                pass
+        return await calculate_sha256(file_path)
     
     async def should_process_file(
         self,
@@ -351,15 +482,29 @@ class ScanService:
 
         # stored_path missing or points to a file that no longer exists -> consider it moved
         logger.info("File moved. Updating Redis path for %s", file_path)
+        if stored_path and stored_path != file_path:
+            await _delete_path_index(redis_client, stored_path)
+        file_mtime = await asyncio.to_thread(os.path.getmtime, file_path)
         await asyncio.to_thread(
             redis_client.hset,
             pcap_key,
             mapping={
                 "path": file_path,
                 "source_directory": os.path.dirname(file_path),
-                "last_modified": await asyncio.to_thread(os.path.getmtime, file_path),
+                "last_modified": file_mtime,
                 "last_scanned": time.time(),
             },
+        )
+        stored_meta = await asyncio.to_thread(redis_client.hgetall, pcap_key)
+        await _write_path_index(
+            redis_client,
+            file_path,
+            pcap_key.split(":")[-1],
+            int(stored_meta.get("size_bytes") or 0),
+            file_mtime,
+            stored_meta.get("scan_mode") or "full",
+            _parse_float(stored_meta.get("pebc")),
+            stored_meta.get("config_version") or "v1",
         )
         return False
 
@@ -409,20 +554,10 @@ class ScanService:
 
             filename = os.path.basename(file_path)
 
-            file_size = await asyncio.to_thread(os.path.getsize, file_path)
+            file_stat = await asyncio.to_thread(os.stat, file_path)
+            file_size = file_stat.st_size
+            file_mtime = file_stat.st_mtime
 
-            file_hash = await calculate_sha256(file_path)
-
-            async with seen_hashes_lock:
-                if file_hash in seen_hashes:
-                    logger.info(
-                        f"Skipping {file_path} (duplicate hash already processed in this scan)"
-                    )
-                    return
-                seen_hashes.add(file_hash)
-
-            # Determine scan mode
-            pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
             base_scan_mode = config.pcap.scan_mode
 
             qs = config.pcap.quick_scan
@@ -439,6 +574,32 @@ class ScanService:
                 quick_scan_config_version=qs.config_version,
             )
 
+            if await self.try_fast_skip_by_path(
+                redis_client=redis_client,
+                file_path=file_path,
+                file_size=file_size,
+                file_mtime=file_mtime,
+                current_scan_mode=current_scan_mode,
+                current_pebc=current_pebc,
+                current_config_version=current_config_version,
+            ):
+                return
+
+            file_hash = await self.resolve_file_hash(
+                file_path, file_size, file_mtime, redis_client
+            )
+
+            async with seen_hashes_lock:
+                if file_hash in seen_hashes:
+                    logger.info(
+                        f"Skipping {file_path} (duplicate hash already processed in this scan)"
+                    )
+                    return
+                seen_hashes.add(file_hash)
+
+            # Determine scan mode
+            pcap_key = f"{PCAP_FILE_KEY_PREFIX}:{file_hash}"
+
             should_scan_now = await self.should_process_file(
                 redis_client=redis_client,
                 pcap_key=pcap_key,
@@ -449,6 +610,16 @@ class ScanService:
             )
 
             if not should_scan_now:
+                await _write_path_index(
+                    redis_client,
+                    file_path,
+                    file_hash,
+                    file_size,
+                    file_mtime,
+                    current_scan_mode.value,
+                    current_pebc,
+                    current_config_version,
+                )
                 return
 
             quick_threshold_bytes: Optional[int] = None
@@ -542,6 +713,17 @@ class ScanService:
 
             await asyncio.to_thread(pipe.execute)
 
+            await _write_path_index(
+                redis_client,
+                file_path,
+                file_hash,
+                file_size,
+                file_mtime,
+                current_scan_mode.value,
+                current_pebc,
+                current_config_version,
+            )
+
             logger.info(
                 "Indexed file %s (hash: %s) with protocols: %s",
                 filename,
@@ -596,6 +778,11 @@ class ScanService:
                 return { "status": "warning", "message": f"No folder named '{target_folder}' found.", "indexed_files": 0 }
 
             logger.info(f"Collected {len(all_files)} files to scan after applying exclusions.")
+
+            all_files.sort(
+                key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0,
+                reverse=True,
+            )
 
             # Prepare shared state
             semaphore = asyncio.Semaphore(MAX_PARALLEL_SCANS)
