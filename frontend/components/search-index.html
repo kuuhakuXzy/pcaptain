@@ -225,6 +225,26 @@
             </div>
         </div>
 
+        <!-- Analysis Modal (IOC + Timeline) -->
+        <div id="analysisModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2 id="analysisTitle">Analysis</h2>
+                <div class="analysis-tabs">
+                    <button type="button" class="analysis-tab active" data-tab="ioc">IOC</button>
+                    <button type="button" class="analysis-tab" data-tab="timeline">Timeline</button>
+                </div>
+                <div id="panel-ioc" class="analysis-panel">
+                    <div id="iocContent"><p>Loading...</p></div>
+                </div>
+                <div id="panel-timeline" class="analysis-panel hidden">
+                    <div id="timelineContent"><p>Loading...</p></div>
+                </div>
+                <div class="feature-modal-actions">
+                    <button id="closeAnalysisModal" class="feature-btn">Close</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Similar Files Modal -->
         <div id="similarModal" class="feature-modal hidden">
             <div class="feature-modal-content wide">
@@ -260,6 +280,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="constant.js"></script>
     <script type="module" src="toast-script.js"></script>
+    <script type="module" src="analysis-script.js"></script>
     <script type="module" src="search-script.js"></script>
     <script type="module" src="features-script.js"></script>
 </body>
