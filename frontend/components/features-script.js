@@ -4,6 +4,81 @@ import { API_PATH, SERVER, TOAST_STATUS } from "./constant.js";
 
 let alertRules = [];
 
+// --- UPLOAD ---
+
+function initUpload() {
+    const zone = document.getElementById("uploadZone");
+    const input = document.getElementById("uploadInput");
+    const uploadBtn = document.getElementById("uploadBtn");
+
+    if (!zone || !input) return;
+
+    zone.addEventListener("click", () => input.click());
+    uploadBtn?.addEventListener("click", () => input.click());
+
+    zone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        zone.classList.add("dragover");
+    });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        zone.classList.remove("dragover");
+        const file = e.dataTransfer?.files?.[0];
+        if (file) uploadFile(file);
+    });
+
+    input.addEventListener("change", () => {
+        const file = input.files?.[0];
+        if (file) uploadFile(file);
+        input.value = "";
+    });
+}
+
+async function uploadFile(file) {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["pcap", "pcapng", "cap"].includes(ext)) {
+        showToast(TOAST_STATUS.ERROR, "Only .pcap, .pcapng, .cap files are allowed");
+        return;
+    }
+
+    const progress = document.getElementById("uploadProgress");
+    const bar = document.getElementById("uploadProgressBar");
+    progress?.classList.add("active");
+    if (bar) bar.style.width = "30%";
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        if (bar) bar.style.width = "60%";
+        const response = await axios.post(`${SERVER}${API_PATH.PCAP_UPLOAD_PATH}`, formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+            timeout: 300000,
+        });
+        if (bar) bar.style.width = "100%";
+
+        const data = response.data;
+        let msg = data.message || "Upload successful";
+        if (data.alerts?.length) {
+            msg += ` (${data.alerts.length} alert(s) triggered)`;
+        }
+        showToast(TOAST_STATUS.SUCCESS, msg);
+
+        if (typeof window.refreshFileList === "function") {
+            window.refreshFileList();
+        }
+    } catch (err) {
+        const detail = err.response?.data?.detail || err.message || "Upload failed";
+        showToast(TOAST_STATUS.ERROR, typeof detail === "string" ? detail : JSON.stringify(detail));
+    } finally {
+        setTimeout(() => {
+            progress?.classList.remove("active");
+            if (bar) bar.style.width = "0%";
+        }, 800);
+    }
+}
+
 function renderCompareResult(data, el) {
     const fmt = (bytes) => {
         if (!bytes) return "0 B";
@@ -227,5 +302,6 @@ export function showFileAlerts(file) {
 // --- INIT ---
 
 document.addEventListener("DOMContentLoaded", () => {
+    initUpload();
     initAlerts();
 });

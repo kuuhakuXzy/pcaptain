@@ -44,6 +44,7 @@
                 <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
                     <i class="fa fa-bar-chart"></i>
                 </button>
+                <button id="uploadBtn" class="feature-btn" title="Upload PCAP">Upload</button>
                 <button id="configBtn" class="config-btn" title="Mount directory configuration">
                     <i class="fa fa-cog"></i>
                 </button>
@@ -59,6 +60,16 @@
 
         <!-- Status signal -->
         <div class="status-signal">        </div>
+
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon"><i class="fa fa-cloud-upload"></i></div>
+            <p><strong>Drop PCAP file here</strong> or click to upload</p>
+            <p>Supported: .pcap, .pcapng, .cap (max 200 MB)</p>
+            <input type="file" id="uploadInput" accept=".pcap,.pcapng,.cap" hidden>
+            <div class="upload-progress" id="uploadProgress">
+                <div class="upload-progress-bar" id="uploadProgressBar"></div>
+            </div>
+        </div>
 
         <!-- Control setting for sorting and pagination -->
         <div class="controls-container">

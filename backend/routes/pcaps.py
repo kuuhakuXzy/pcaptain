@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+# Tyler code
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, UploadFile, File
 from fastapi.responses import FileResponse
 import os
 import asyncio
@@ -7,11 +8,82 @@ from services.logger import get_logger
 import re
 import uuid
 from services.context import get_app_context, AppContext
-from services.config import get_pcap_root_directories
-from services.scan import PCAP_FILE_KEY_PREFIX
+from services.config import get_pcap_root_directories, get_upload_directory
+from services.scan import PCAP_FILE_KEY_PREFIX, calculate_sha256, get_scan_service
 
 router = APIRouter(tags=["Pcaps"])
 logger = get_logger(__name__)
+
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+
+@router.post("/pcaps/upload", summary="Upload a pcap file and scan it")
+async def upload_pcap(
+    file: UploadFile = File(...),
+    context: AppContext = Depends(get_app_context),
+):
+    if not context.redis_client:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    filename = os.path.basename(file.filename or "upload.pcap")
+    ext = os.path.splitext(filename)[1].lower()
+    allowed = context.config.pcap.allowed_file_extensions
+    if ext not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid extension '{ext}'. Allowed: {', '.join(sorted(allowed))}",
+        )
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Max size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
+        )
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    upload_dir = get_upload_directory(context.config.pcap)
+    await asyncio.to_thread(os.makedirs, upload_dir, exist_ok=True)
+
+    base, ext_name = os.path.splitext(filename)
+    dest_name = filename
+    dest_path = os.path.join(upload_dir, dest_name)
+    if await asyncio.to_thread(os.path.exists, dest_path):
+        dest_name = f"{base}_{uuid.uuid4().hex[:8]}{ext_name}"
+        dest_path = os.path.join(upload_dir, dest_name)
+
+    def _write_file():
+        with open(dest_path, "wb") as f:
+            f.write(content)
+
+    await asyncio.to_thread(_write_file)
+    logger.info("Uploaded pcap saved to %s", dest_path)
+
+    scan_service = get_scan_service()
+    result = await scan_service.scan_single_file(dest_path, context=context)
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Scan failed"))
+
+    if result.get("status") == "no_protocols":
+        return {
+            "status": "uploaded",
+            "message": "File uploaded but no protocols detected",
+            "filename": dest_name,
+            "path": dest_path,
+            "file_hash": result.get("file_hash"),
+        }
+
+    return {
+        "status": "success",
+        "message": "File uploaded and indexed",
+        "filename": dest_name,
+        "path": dest_path,
+        "file_hash": result.get("file_hash"),
+        "protocols": result.get("protocols", []),
+        "alerts": result.get("alerts", []),
+    }
 
 
 @router.get(
