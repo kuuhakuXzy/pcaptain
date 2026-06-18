@@ -45,6 +45,9 @@
                     <i class="fa fa-bar-chart"></i>
                 </button>
                 <button id="uploadBtn" class="feature-btn" title="Upload PCAP">Upload</button>
+                <button id="compareBtn" class="feature-btn" disabled title="Select 2 files to compare">
+                    Compare <span id="compareCount" class="compare-selected-count"></span>
+                </button>
                 <button id="configBtn" class="config-btn" title="Mount directory configuration">
                     <i class="fa fa-cog"></i>
                 </button>
@@ -107,6 +110,7 @@
             <table id="resultTable">
                 <thead>
                     <tr>
+                        <th class="compare-col"><i class="fa fa-check-square-o" title="Select to compare"></i></th>
                         <th>Filename</th>
                         <th class="thInfo">Info</th>
                         <th class="thMode">Mode</th>
@@ -156,6 +160,18 @@
                         <code>docker compose up -d</code>.
                     </p>
                     <div id="configPathsContent">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Modal -->
+        <div id="compareModal" class="feature-modal hidden">
+            <div class="feature-modal-content wide">
+                <h2>Compare PCAP Files</h2>
+                <div id="compareResult"><p>Select 2 files and click Compare</p></div>
+                <div class="feature-modal-actions">
+                    <button id="runCompareBtn" class="feature-btn primary">Refresh</button>
+                    <button id="closeCompareModal" class="feature-btn">Close</button>
                 </div>
             </div>
         </div>

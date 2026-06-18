@@ -17,6 +17,32 @@ logger = get_logger(__name__)
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 
 
+def _file_summary(meta: dict, file_hash: str) -> dict:
+    protocols = meta.get("protocols", "")
+    proto_list = [p.strip() for p in protocols.split(",") if p.strip()] if protocols else []
+    pct_raw = meta.get("protocol_percentages", "{}")
+    try:
+        pct_map = json.loads(pct_raw) if isinstance(pct_raw, str) else pct_raw
+    except json.JSONDecodeError:
+        pct_map = {}
+    alerts_raw = meta.get("alerts", "[]")
+    try:
+        alerts = json.loads(alerts_raw) if isinstance(alerts_raw, str) else alerts_raw
+    except json.JSONDecodeError:
+        alerts = []
+    return {
+        "file_hash": file_hash,
+        "filename": meta.get("filename"),
+        "path": meta.get("path"),
+        "size_bytes": int(meta.get("size_bytes") or 0),
+        "total_packets": int(meta.get("total_packets") or 0),
+        "protocols": proto_list,
+        "protocol_percentages": pct_map,
+        "scan_mode": meta.get("scan_mode"),
+        "alerts": alerts,
+    }
+
+
 @router.post("/pcaps/upload", summary="Upload a pcap file and scan it")
 async def upload_pcap(
     file: UploadFile = File(...),
@@ -83,6 +109,69 @@ async def upload_pcap(
         "file_hash": result.get("file_hash"),
         "protocols": result.get("protocols", []),
         "alerts": result.get("alerts", []),
+    }
+
+
+@router.get("/pcaps/compare", summary="Compare two indexed pcap files")
+async def compare_pcaps(
+    hash_a: str = Query(..., description="SHA256 hash of first file"),
+    hash_b: str = Query(..., description="SHA256 hash of second file"),
+    context: AppContext = Depends(get_app_context),
+):
+    if not context.redis_client:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+    if hash_a == hash_b:
+        raise HTTPException(status_code=400, detail="Cannot compare a file with itself")
+
+    redis = context.redis_client
+    meta_a = await asyncio.to_thread(redis.hgetall, f"{PCAP_FILE_KEY_PREFIX}:{hash_a}")
+    meta_b = await asyncio.to_thread(redis.hgetall, f"{PCAP_FILE_KEY_PREFIX}:{hash_b}")
+
+    if not meta_a:
+        raise HTTPException(status_code=404, detail=f"File not found: {hash_a}")
+    if not meta_b:
+        raise HTTPException(status_code=404, detail=f"File not found: {hash_b}")
+
+    file_a = _file_summary(meta_a, hash_a)
+    file_b = _file_summary(meta_b, hash_b)
+
+    set_a = set(file_a["protocols"])
+    set_b = set(file_b["protocols"])
+    common = sorted(set_a & set_b)
+    only_a = sorted(set_a - set_b)
+    only_b = sorted(set_b - set_a)
+    union = set_a | set_b
+    similarity = round(len(common) / len(union) * 100, 1) if union else 100.0
+
+    pct_diff = {}
+    for proto in common:
+        pa = float(file_a["protocol_percentages"].get(proto, 0))
+        pb = float(file_b["protocol_percentages"].get(proto, 0))
+        pct_diff[proto] = {"a": pa, "b": pb, "diff": round(abs(pa - pb), 1)}
+
+    size_a = file_a["size_bytes"]
+    size_b = file_b["size_bytes"]
+    pkt_a = file_a["total_packets"]
+    pkt_b = file_b["total_packets"]
+
+    same_content = hash_a == hash_b or (
+        file_a["filename"] == file_b["filename"]
+        and size_a == size_b
+        and pkt_a == pkt_b
+        and set_a == set_b
+    )
+
+    return {
+        "file_a": file_a,
+        "file_b": file_b,
+        "common_protocols": common,
+        "only_in_a": only_a,
+        "only_in_b": only_b,
+        "similarity_pct": similarity,
+        "same_content_likely": same_content,
+        "size_diff_bytes": abs(size_a - size_b),
+        "packet_diff": abs(pkt_a - pkt_b),
+        "protocol_pct_diff": pct_diff,
     }
 
 
