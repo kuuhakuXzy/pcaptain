@@ -415,6 +415,29 @@ async function scanFiles() {
             return showToast(TOAST_STATUS.ERROR, "Failed to trigger scan");
         }
         startScanStatusPolling();
+        //const timer = setInterval(async () => {
+        /*scanStatusTimer = setInterval(async () => {
+            try {
+                const apiResponse = await axios.get(SERVER + API_PATH.SCAN_STATUS_PATH);
+                const status = apiResponse.data.state;
+                if (status === SERVER_SCANNING_FILE_STATUS.COMPLETED ||
+                    status === SERVER_SCANNING_FILE_STATUS.IDLE
+                ) {
+                    disappearScanLoadingSpinner();
+                    clearInterval(scanStatusTimer);
+                    scanStatusTimer = null;
+                    showToast(TOAST_STATUS.SUCCESS, "Scan completed successfully");
+                } else if (status === SERVER_SCANNING_FILE_STATUS.FAILED) {
+                    disappearScanLoadingSpinner();
+                    clearInterval(scanStatusTimer);
+                    showToast(TOAST_STATUS.ERROR, "Scan failed");
+                }
+            } catch (err) {
+                disappearScanLoadingSpinner();
+                clearInterval(scanStatusTimer);
+                scanStatusTimer = null;
+            }
+        }, CHECK_SCAN_FILES_STATUS_INTERVAL); */ //alr replaced with startScanStatusPolling
     } catch (err) {
         disappearScanLoadingSpinner();
         const cancelBtn = document.getElementById("cancelScanBtn");
