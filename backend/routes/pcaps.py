@@ -1,6 +1,6 @@
 # Tyler code
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import os
 import asyncio
 import json
@@ -9,7 +9,8 @@ import re
 import uuid
 from services.context import get_app_context, AppContext
 from services.config import get_pcap_root_directories, get_upload_directory
-from services.scan import PCAP_FILE_KEY_PREFIX, calculate_sha256, get_scan_service
+from services.scan import PCAP_FILE_KEY_PREFIX, calculate_sha256, get_scan_service, hash_bytes_sync
+from routes.dashboard import refresh_dashboard_summary
 
 router = APIRouter(tags=["Pcaps"])
 logger = get_logger(__name__)
@@ -43,17 +44,9 @@ def _file_summary(meta: dict, file_hash: str) -> dict:
     }
 
 
-@router.post("/pcaps/upload", summary="Upload a pcap file and scan it")
-async def upload_pcap(
-    file: UploadFile = File(...),
-    context: AppContext = Depends(get_app_context),
-):
-    if not context.redis_client:
-        raise HTTPException(status_code=503, detail="Redis unavailable")
-
+async def _read_upload_file(file: UploadFile, allowed: tuple) -> tuple[str, bytes]:
     filename = os.path.basename(file.filename or "upload.pcap")
     ext = os.path.splitext(filename)[1].lower()
-    allowed = context.config.pcap.allowed_file_extensions
     if ext not in allowed:
         raise HTTPException(
             status_code=400,
@@ -69,8 +62,84 @@ async def upload_pcap(
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
+    return filename, content
+
+
+async def _lookup_indexed_file(redis, file_hash: str) -> dict | None:
+    meta = await asyncio.to_thread(redis.hgetall, f"{PCAP_FILE_KEY_PREFIX}:{file_hash}")
+    if not meta:
+        return None
+    return _file_summary(meta, file_hash)
+
+
+@router.post("/pcaps/check-duplicate", summary="Check if uploaded content already exists in the index")
+async def check_duplicate_pcap(
+    file: UploadFile = File(...),
+    context: AppContext = Depends(get_app_context),
+):
+    if not context.redis_client:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    _, content = await _read_upload_file(file, tuple(context.config.pcap.allowed_file_extensions))
+    file_hash = hash_bytes_sync(content)
+    existing = await _lookup_indexed_file(context.redis_client, file_hash)
+
+    if existing:
+        return {
+            "status": "duplicate",
+            "file_hash": file_hash,
+            "message": "This file is already in the index (identical content).",
+            "existing": existing,
+        }
+
+    return {
+        "status": "unique",
+        "file_hash": file_hash,
+        "message": "No matching file found in the index.",
+    }
+
+
+@router.post("/pcaps/upload", summary="Upload a pcap file and scan it")
+async def upload_pcap(
+    file: UploadFile = File(...),
+    force: bool = Query(
+        False,
+        description="If true, save and index even when identical content already exists",
+    ),
+    context: AppContext = Depends(get_app_context),
+):
+    if not context.redis_client:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    filename, content = await _read_upload_file(
+        file, tuple(context.config.pcap.allowed_file_extensions)
+    )
+    file_hash = hash_bytes_sync(content)
+    existing = await _lookup_indexed_file(context.redis_client, file_hash)
+
+    if existing and not force:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "duplicate",
+                "file_hash": file_hash,
+                "message": "This file is already in the index (identical content). Upload skipped.",
+                "existing": existing,
+            },
+        )
+
     upload_dir = get_upload_directory(context.config.pcap)
-    await asyncio.to_thread(os.makedirs, upload_dir, exist_ok=True)
+    try:
+        await asyncio.to_thread(os.makedirs, upload_dir, exist_ok=True)
+    except OSError as exc:
+        logger.error("Cannot create upload directory %s: %s", upload_dir, exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Upload directory unavailable ({upload_dir}). "
+                "Ensure PCAP mount is a folder, not a file — check PCAP_DIRECTORIES in .env."
+            ),
+        ) from exc
 
     base, ext_name = os.path.splitext(filename)
     dest_name = filename
@@ -92,6 +161,27 @@ async def upload_pcap(
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("message", "Scan failed"))
 
+    if result.get("status") == "duplicate":
+        if await asyncio.to_thread(os.path.exists, dest_path):
+            await asyncio.to_thread(os.remove, dest_path)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "duplicate",
+                "file_hash": result.get("file_hash"),
+                "message": result.get("message", "Identical content already indexed."),
+                "existing": {
+                    "file_hash": result.get("file_hash"),
+                    "filename": result.get("existing_filename"),
+                    "path": result.get("existing_path"),
+                    "protocols": result.get("protocols", []),
+                    "alerts": result.get("alerts", []),
+                },
+            },
+        )
+
+    await refresh_dashboard_summary(context)
+
     if result.get("status") == "no_protocols":
         return {
             "status": "uploaded",
@@ -101,9 +191,13 @@ async def upload_pcap(
             "file_hash": result.get("file_hash"),
         }
 
+    msg = "File uploaded and indexed"
+    if result.get("already_indexed"):
+        msg = "File uploaded (already indexed at this path, metadata refreshed)"
+
     return {
         "status": "success",
-        "message": "File uploaded and indexed",
+        "message": msg,
         "filename": dest_name,
         "path": dest_path,
         "file_hash": result.get("file_hash"),

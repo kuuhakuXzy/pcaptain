@@ -28,6 +28,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData();
     initCaptureYearModal();
 
+    window.addEventListener('pcap-index-changed', () => {
+        loadDashboardData(true);
+    });
+
     refreshBtn.addEventListener('click', () => {
         loadDashboardData(true);
     });

@@ -57,6 +57,14 @@ nav {
     background: #004d87;
 }
 
+.main-btn.ops-btn {
+    background: #475569;
+}
+
+.main-btn.ops-btn:hover {
+    background: #334155;
+}
+
 .refresh-btn {
     background: #10b981;
     color: white;

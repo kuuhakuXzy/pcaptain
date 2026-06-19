@@ -2,11 +2,14 @@ import os
 import yaml
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import List, Optional, Set, TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator
 from .logger import get_logger
 
 logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from .context import AppContext
 
 
 class RedisConfig(BaseModel):
@@ -172,3 +175,36 @@ def load_config(config_path: str = "/app/config/config.yaml") -> AppConfig:
     except Exception as e:
         print(f"[config] Error loading config: {e}")
         raise
+
+
+def update_scan_mode(
+    scan_mode: ScanMode,
+    *,
+    config_path: str = "/app/config/config.yaml",
+    context: Optional["AppContext"] = None,
+) -> ScanMode:
+    """Update runtime scan mode and persist to config.yaml."""
+    config_file = Path(config_path)
+    yaml_data: dict = {}
+
+    if config_file.exists():
+        with open(config_file, "r", encoding="utf-8") as f:
+            loaded = yaml.safe_load(f)
+            if isinstance(loaded, dict):
+                yaml_data = loaded
+
+    pcap_section = yaml_data.setdefault("pcap", {})
+    if not isinstance(pcap_section, dict):
+        pcap_section = {}
+        yaml_data["pcap"] = pcap_section
+
+    pcap_section["scan_mode"] = scan_mode.value
+
+    with open(config_file, "w", encoding="utf-8") as f:
+        yaml.safe_dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+
+    if context is not None:
+        context.config.pcap.scan_mode = scan_mode
+
+    logger.info("Scan mode updated to %s (saved to %s)", scan_mode.value, config_path)
+    return scan_mode
