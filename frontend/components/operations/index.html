@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="operations-style.css">
+    <link rel="stylesheet" href="../toast-style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <title>Operations Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>Operations Dashboard</h1>
+                <p class="header-subtitle">System health, scan jobs, alerts, and configuration</p>
+            </div>
+            <nav>
+                <button type="button" onclick="location.href='/'" class="nav-btn" title="Back to Search">
+                    <i class="fa fa-home"></i> Search
+                </button>
+                <button type="button" onclick="location.href='/dashboard'" class="nav-btn secondary" title="Analytics dashboard">
+                    <i class="fa fa-bar-chart"></i> Analytics
+                </button>
+                <button id="refreshBtn" class="nav-btn primary" title="Refresh">
+                    <i class="fa fa-refresh"></i> Refresh
+                </button>
+            </nav>
+        </header>
+
+        <div id="loadingIndicator" class="loading-indicator hidden">
+            <div class="spinner"></div>
+            <p>Loading operations data...</p>
+        </div>
+
+        <div id="errorMessage" class="error-message hidden"></div>
+
+        <div id="operationsContent" class="operations-content hidden">
+            <div class="status-grid" id="statusGrid"></div>
+
+            <div class="panel-grid">
+                <section class="panel">
+                    <h2><i class="fa fa-cogs"></i> Scan &amp; Index Jobs</h2>
+                    <div id="jobsPanel"></div>
+                </section>
+
+                <section class="panel">
+                    <h2><i class="fa fa-bell"></i> Alert Summary</h2>
+                    <div id="alertsPanel"></div>
+                </section>
+
+                <section class="panel">
+                    <h2><i class="fa fa-sliders"></i> Scan Configuration</h2>
+                    <div id="configPanel"></div>
+                    <div id="scanModeControl" class="scan-mode-control"></div>
+                </section>
+
+                <section class="panel">
+                    <h2><i class="fa fa-folder-open"></i> PCAP Mount Paths</h2>
+                    <div id="pathsPanel"></div>
+                </section>
+
+                <section class="panel wide">
+                    <h2><i class="fa fa-exclamation-triangle"></i> Recent Alerted Files</h2>
+                    <div id="recentAlertsPanel"></div>
+                </section>
+            </div>
+
+            <div class="metadata">
+                <p>Last updated: <span id="lastUpdated">—</span> · Auto-refresh: <span id="autoRefreshLabel">—</span></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="../config.js"></script>
+    <script type="module" src="operations-script.js"></script>
+</body>
+
+</html>

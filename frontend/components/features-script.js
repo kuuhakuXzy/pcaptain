@@ -11,11 +11,20 @@ function initUpload() {
     const zone = document.getElementById("uploadZone");
     const input = document.getElementById("uploadInput");
     const uploadBtn = document.getElementById("uploadBtn");
+    const checkBtn = document.getElementById("checkDuplicateBtn");
 
     if (!zone || !input) return;
 
-    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("click", (e) => {
+        if (e.target.closest("#checkDuplicateBtn")) return;
+        input.click();
+    });
     uploadBtn?.addEventListener("click", () => input.click());
+    checkBtn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        input.click();
+        input.dataset.checkOnly = "1";
+    });
 
     zone.addEventListener("dragover", (e) => {
         e.preventDefault();
@@ -31,9 +40,73 @@ function initUpload() {
 
     input.addEventListener("change", () => {
         const file = input.files?.[0];
-        if (file) uploadFile(file);
+        const checkOnly = input.dataset.checkOnly === "1";
+        input.dataset.checkOnly = "";
         input.value = "";
+        if (!file) return;
+        if (checkOnly) {
+            checkDuplicateFile(file);
+        } else {
+            uploadFile(file);
+        }
     });
+}
+
+function showDuplicateHint(message, kind) {
+    const hint = document.getElementById("uploadDuplicateHint");
+    if (!hint) return;
+    hint.textContent = message;
+    hint.classList.remove("hidden", "duplicate", "unique");
+    hint.classList.add(kind);
+}
+
+function clearDuplicateHint() {
+    const hint = document.getElementById("uploadDuplicateHint");
+    if (!hint) return;
+    hint.textContent = "";
+    hint.classList.add("hidden");
+    hint.classList.remove("duplicate", "unique");
+}
+
+function formatDuplicateMessage(existing) {
+    const name = existing?.filename || "unknown";
+    const path = existing?.path || "";
+    return `Already indexed as "${name}"${path ? ` (${path})` : ""}`;
+}
+
+async function checkDuplicateFile(file) {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["pcap", "pcapng", "cap"].includes(ext)) {
+        showToast(TOAST_STATUS.ERROR, "Only .pcap, .pcapng, .cap files are allowed");
+        return;
+    }
+
+    clearDuplicateHint();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const response = await axios.post(
+            `${SERVER}${API_PATH.PCAP_CHECK_DUPLICATE_PATH}`,
+            formData,
+            {
+                headers: { "Content-Type": "multipart/form-data" },
+                timeout: 120000,
+            }
+        );
+        const data = response.data;
+        if (data.status === "duplicate") {
+            const msg = formatDuplicateMessage(data.existing);
+            showDuplicateHint(`Duplicate — ${msg}`, "duplicate");
+            showToast(TOAST_STATUS.WARNING, msg);
+        } else {
+            showDuplicateHint("No duplicate — this file is not in the index yet.", "unique");
+            showToast(TOAST_STATUS.SUCCESS, "No duplicate found");
+        }
+    } catch (err) {
+        const detail = err.response?.data?.detail || err.message || "Duplicate check failed";
+        showToast(TOAST_STATUS.ERROR, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
 }
 
 async function uploadFile(file) {
@@ -43,6 +116,7 @@ async function uploadFile(file) {
         return;
     }
 
+    clearDuplicateHint();
     const progress = document.getElementById("uploadProgress");
     const bar = document.getElementById("uploadProgressBar");
     progress?.classList.add("active");
@@ -66,10 +140,20 @@ async function uploadFile(file) {
         }
         showToast(TOAST_STATUS.SUCCESS, msg);
 
+        window.dispatchEvent(new CustomEvent("pcap-index-changed"));
+
         if (typeof window.refreshFileList === "function") {
             window.refreshFileList();
         }
     } catch (err) {
+        if (err.response?.status === 409) {
+            const data = err.response.data || {};
+            const existing = data.existing || {};
+            const msg = data.message || formatDuplicateMessage(existing);
+            showDuplicateHint(`Duplicate — ${formatDuplicateMessage(existing)}`, "duplicate");
+            showToast(TOAST_STATUS.WARNING, msg);
+            return;
+        }
         const detail = err.response?.data?.detail || err.message || "Upload failed";
         showToast(TOAST_STATUS.ERROR, typeof detail === "string" ? detail : JSON.stringify(detail));
     } finally {

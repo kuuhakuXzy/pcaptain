@@ -8,17 +8,37 @@ from enum import Enum
 import asyncio
 import os
 
-from services.scan import PCAP_FILE_KEY_PREFIX
+from services.scan import PCAP_FILE_KEY_PREFIX, PATH_INDEX_PREFIX, get_scan_service
 from services.logger import get_logger
-from services.config import get_pcap_root_directories
+from services.config import get_pcap_root_directories, get_pcap_display_paths, get_upload_directory
 from services.context import get_app_context, AppContext
+from services.alerts import ALERT_INDEX_KEY, get_all_rules, seed_default_rules
+from services.dashboard_cache import (
+    DASHBOARD_STATUS_KEY,
+    DASHBOARD_SUMMARY_KEY,
+    DASHBOARD_TTL_SECONDS,
+    invalidate_dashboard_summary,
+)
 
 router = APIRouter(tags=["Dashboard"])
 logger = get_logger(__name__)
 
-DASHBOARD_STATUS_KEY = "dashboard:status"
-DASHBOARD_SUMMARY_KEY = "dashboard:summary"
-DASHBOARD_TTL_SECONDS = 300  # 5 minutes
+
+def schedule_dashboard_rebuild(context: AppContext) -> None:
+    """Invalidate stale analytics cache and rebuild in the background."""
+    if not context.redis_client:
+        return
+    invalidate_dashboard_summary(context.redis_client)
+    asyncio.create_task(build_dashboard_summary(context))
+
+
+async def refresh_dashboard_summary(context: AppContext) -> None:
+    """Invalidate and rebuild analytics cache before returning to the client."""
+    if not context.redis_client:
+        return
+    invalidate_dashboard_summary(context.redis_client)
+    await build_dashboard_summary(context)
+
 
 class DASHBOARD_STATUS(Enum):
     IDLE = "idle"
@@ -350,3 +370,174 @@ async def capture_year_files(
         "count": len(files),
         "files": files,
     }
+
+
+def _collect_index_stats(redis) -> dict:
+    total_files = 0
+    total_size = 0
+    cursor = 0
+
+    while True:
+        cursor, keys = redis.scan(
+            cursor=cursor,
+            match=f"{PCAP_FILE_KEY_PREFIX}:*",
+            count=500,
+        )
+        for key in keys:
+            data = redis.hgetall(key)
+            if not data:
+                continue
+            total_files += 1
+            total_size += int(data.get("size_bytes", 0) or 0)
+        if cursor == 0:
+            break
+
+    path_entries = 0
+    cursor = 0
+    while True:
+        cursor, keys = redis.scan(
+            cursor=cursor,
+            match=f"{PATH_INDEX_PREFIX}:*",
+            count=500,
+        )
+        path_entries += len(keys)
+        if cursor == 0:
+            break
+
+    return {
+        "total_files": total_files,
+        "total_size_bytes": total_size,
+        "path_index_entries": path_entries,
+    }
+
+
+def _collect_alert_stats(redis) -> dict:
+    seed_default_rules(redis)
+    rules = get_all_rules(redis)
+    enabled_rules = sum(1 for rule in rules if rule.get("enabled", True))
+
+    hashes = list(redis.smembers(ALERT_INDEX_KEY))
+    by_severity: dict[str, int] = defaultdict(int)
+    recent = []
+
+    for file_hash in hashes:
+        meta = redis.hgetall(f"{PCAP_FILE_KEY_PREFIX}:{file_hash}")
+        if not meta:
+            continue
+        alerts_raw = meta.get("alerts", "[]")
+        try:
+            alerts = json.loads(alerts_raw)
+        except json.JSONDecodeError:
+            alerts = []
+
+        for alert in alerts:
+            severity = alert.get("severity", "medium")
+            by_severity[severity] += 1
+
+        recent.append(
+            {
+                "file_hash": file_hash,
+                "filename": meta.get("filename", ""),
+                "path": meta.get("path", ""),
+                "alert_count": len(alerts),
+                "top_severity": _highest_severity(alerts),
+            }
+        )
+
+    recent.sort(key=lambda item: (-item["alert_count"], item["filename"].lower()))
+
+    return {
+        "files_with_alerts": len(hashes),
+        "alert_events": sum(by_severity.values()),
+        "by_severity": dict(by_severity),
+        "enabled_rules": enabled_rules,
+        "total_rules": len(rules),
+        "recent": recent[:12],
+    }
+
+
+def _highest_severity(alerts: list) -> str:
+    order = {"high": 3, "medium": 2, "low": 1}
+    best = "low"
+    best_rank = 0
+    for alert in alerts:
+        severity = alert.get("severity", "medium")
+        rank = order.get(severity, 0)
+        if rank > best_rank:
+            best_rank = rank
+            best = severity
+    return best
+
+
+def _build_operations_snapshot(context: AppContext) -> dict:
+    redis = context.redis_client
+    config = context.config
+    scan_service = get_scan_service()
+    now = time.time()
+
+    redis_ok = False
+    if redis is not None:
+        try:
+            redis.ping()
+            redis_ok = True
+        except Exception:
+            redis_ok = False
+
+    index_stats = _collect_index_stats(redis) if redis_ok else {}
+    alert_stats = _collect_alert_stats(redis) if redis_ok else {}
+
+    pcap_config = config.pcap
+    scan_cfg = {
+        "scan_mode": pcap_config.scan_mode.value,
+        "max_parallel_scans": pcap_config.max_parallel_scans,
+        "config_version": pcap_config.quick_scan.config_version,
+        "pebc": pcap_config.quick_scan.pebc if pcap_config.scan_mode.value == "quick" else None,
+        "min_file_size": pcap_config.quick_scan.min_file_size if pcap_config.scan_mode.value == "quick" else None,
+        "sample_segments": pcap_config.quick_scan.sample_segments,
+    }
+
+    dashboard_status = redis.get(DASHBOARD_STATUS_KEY) if redis_ok else None
+    summary_raw = redis.get(DASHBOARD_SUMMARY_KEY) if redis_ok else None
+    dashboard_generated_at = None
+    if summary_raw:
+        try:
+            dashboard_generated_at = json.loads(summary_raw).get("generated_at")
+        except json.JSONDecodeError:
+            pass
+
+    return {
+        "generated_at": now,
+        "health": {
+            "api": "ok",
+            "redis": "ok" if redis_ok else "error",
+        },
+        "scan": dict(scan_service.scan_status),
+        "backfill": dict(scan_service.backfill_status),
+        "rebuild_searchindex": dict(scan_service.rebuild_searchindex_status),
+        "index": index_stats,
+        "alerts": alert_stats,
+        "scan_config": scan_cfg,
+        "pcap_paths": {
+            "root_directories": get_pcap_root_directories(pcap_config),
+            "display_paths": get_pcap_display_paths(pcap_config),
+            "upload_directory": get_upload_directory(pcap_config),
+            "allowed_extensions": sorted(pcap_config.allowed_file_extensions),
+        },
+        "dashboard_cache": {
+            "status": dashboard_status or "missing",
+            "generated_at": dashboard_generated_at,
+            "ttl_seconds": DASHBOARD_TTL_SECONDS,
+        },
+    }
+
+
+@router.get("/dashboard/operations", summary="Operations dashboard snapshot")
+async def operations_dashboard(context: AppContext = Depends(get_app_context)):
+    if context.redis_client is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Redis unavailable"},
+        )
+
+    snapshot = await asyncio.to_thread(_build_operations_snapshot, context)
+    return snapshot

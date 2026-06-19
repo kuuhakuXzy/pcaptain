@@ -90,6 +90,24 @@
     transition: width 0.3s;
 }
 
+.upload-duplicate-hint {
+    margin-top: 10px;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.upload-duplicate-hint.hidden {
+    display: none;
+}
+
+.upload-duplicate-hint.duplicate {
+    color: #b45309;
+}
+
+.upload-duplicate-hint.unique {
+    color: #047857;
+}
+
 /* Alert badges */
 .alert-badge {
     display: inline-block;

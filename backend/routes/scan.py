@@ -1,10 +1,12 @@
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 from services.config import (
     ScanMode,
     get_pcap_display_paths,
     get_pcap_root_directories,
     get_upload_directory,
     list_pcap_scan_folders,
+    update_scan_mode,
 )
 from services.context import get_app_context, AppContext
 from typing import Optional, List
@@ -18,6 +20,21 @@ from services.logger import get_logger
 router = APIRouter(tags=["Scan"])
 
 logger = get_logger(__name__)
+
+
+class ScanConfigUpdate(BaseModel):
+    scan_mode: ScanMode = Field(..., description="Global scan mode: full, quick, or fast")
+
+
+def _scan_config_payload(pcap_config) -> dict:
+    return {
+        "scan_mode": pcap_config.scan_mode.value,
+        "max_parallel_scans": pcap_config.max_parallel_scans,
+        "pebc": pcap_config.quick_scan.pebc if pcap_config.scan_mode == ScanMode.QUICK else None,
+        "min_file_size": pcap_config.quick_scan.min_file_size if pcap_config.scan_mode == ScanMode.QUICK else None,
+        "config_version": pcap_config.quick_scan.config_version,
+        "sample_segments": pcap_config.quick_scan.sample_segments,
+    }
 
 
 @router.post("/reindex", summary="Rescan pcap directories and rebuild the index")
@@ -148,15 +165,43 @@ async def pcap_folders(*, context: AppContext = Depends(get_app_context)):
 @router.get("/scan-config", summary="Get current scan configuration")
 async def scan_config(*, context: AppContext = Depends(get_app_context)):
     """Expose current runtime scan configuration."""
-    pcap_config = context.config.pcap
+    return _scan_config_payload(context.config.pcap)
+
+
+@router.patch("/scan-config", summary="Update global scan mode")
+async def update_scan_config(
+    body: ScanConfigUpdate,
+    reindex: bool = Query(False, description="Start reindex after updating scan mode"),
+    context: AppContext = Depends(get_app_context),
+):
+    scan_service = get_scan_service()
+    if scan_service.scan_status["state"] == ScanState.RUNNING:
+        raise HTTPException(status_code=409, detail="A scan is already running.")
+
+    previous = context.config.pcap.scan_mode
+    update_scan_mode(body.scan_mode, context=context)
+
+    started_reindex = False
+    if reindex:
+        scan_service.scan_cancel_event.clear()
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(
+            context.thread_executor,
+            lambda: scan_service.scan_wrapper(),
+        )
+        started_reindex = True
+
     return {
-        "scan_mode": pcap_config.scan_mode.value,
-        "max_parallel_scans": pcap_config.max_parallel_scans,
-        "pebc": pcap_config.quick_scan.pebc if pcap_config.scan_mode == ScanMode.QUICK else None,
-        "min_file_size": pcap_config.quick_scan.min_file_size if pcap_config.scan_mode == ScanMode.QUICK else None,
-        "config_version": pcap_config.quick_scan.config_version,
-        "sample_segments": pcap_config.quick_scan.sample_segments,
+        "status": "updated",
+        "previous_scan_mode": previous.value,
+        "scan_config": _scan_config_payload(context.config.pcap),
+        "reindex_started": started_reindex,
+        "message": (
+            f"Scan mode changed from {previous.value} to {body.scan_mode.value}."
+            + (" Reindex started." if started_reindex else " Run Scan/Reindex to apply to existing files.")
+        ),
     }
+
 
 @router.post(
     "/reindex/{folder_path:path}", summary="Reindex a specific folder under PCAP directories"

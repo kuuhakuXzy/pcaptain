@@ -45,8 +45,11 @@
                 <button id="scanBtn">Scan</button>
                 <div id="spinnerScanBtn" class="spinner-scan-hidden"></div>
                 <button id="cancelScanBtn" class="danger-btn">Cancel Scan</button>
-                <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Go to Dashboard">
+                <button id="dashboardBtn" onclick="location.href='/dashboard'" class="dashboard-btn" title="Analytics dashboard">
                     <i class="fa fa-bar-chart"></i>
+                </button>
+                <button id="operationsBtn" onclick="location.href='/operations'" class="dashboard-btn" title="Operations dashboard">
+                    <i class="fa fa-heartbeat"></i>
                 </button>
                 <button id="configBtn" class="config-btn" title="Mount directory configuration">
                     <i class="fa fa-cog"></i>
@@ -73,6 +76,10 @@
             <div class="upload-icon"><i class="fa fa-cloud-upload"></i></div>
             <p><strong>Drop PCAP file here</strong> or click to upload</p>
             <p>Supported: .pcap, .pcapng, .cap (max 200 MB)</p>
+            <button type="button" id="checkDuplicateBtn" class="feature-btn" style="margin-top:8px">
+                Check duplicate
+            </button>
+            <p id="uploadDuplicateHint" class="upload-duplicate-hint hidden"></p>
             <input type="file" id="uploadInput" accept=".pcap,.pcapng,.cap" hidden>
             <div class="upload-progress" id="uploadProgress">
                 <div class="upload-progress-bar" id="uploadProgressBar"></div>

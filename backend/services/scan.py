@@ -224,6 +224,10 @@ def calculate_sha256_sync(file_path: str) -> str:
     return sha256_hash.hexdigest()
 
 
+def hash_bytes_sync(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 async def calculate_sha256(file_path: str) -> str:
     return await asyncio.to_thread(calculate_sha256_sync, file_path)
 
@@ -448,6 +452,7 @@ class ScanService:
         "state": ScanState.IDLE,
         "indexed_files": 0,
         "message": "Ready",
+        "last_run": None,
     }
 
     backfill_status: Dict[str, Any] = {
@@ -681,6 +686,7 @@ class ScanService:
         seen_hashes_lock: asyncio.Lock,
         counter_lock: asyncio.Lock,
         files_indexed_container: List[int],
+        fast_skipped_container: List[int],
         redis_client,
         config,
         context: AppContext,
@@ -719,6 +725,8 @@ class ScanService:
                 current_pebc=current_pebc,
                 current_config_version=current_config_version,
             ):
+                async with counter_lock:
+                    fast_skipped_container[0] += 1
                 return
 
             file_hash = await self.resolve_file_hash(
@@ -973,6 +981,7 @@ class ScanService:
             seen_hashes : Set[str] = set()
             counter_lock = asyncio.Lock() # protect files_indexed
             files_indexed_container : List[int] = [0]
+            fast_skipped_container: List[int] = [0]
 
             # Create all tasks and run them concurrently
             tasks = [
@@ -983,6 +992,7 @@ class ScanService:
                     seen_hashes=seen_hashes,
                     counter_lock=counter_lock,
                     files_indexed_container=files_indexed_container,
+                    fast_skipped_container=fast_skipped_container,
                     redis_client=redis_client,
                     config=config,
                     context=context,
@@ -995,7 +1005,12 @@ class ScanService:
             # Check if cancelled
             if self.scan_cancel_event.is_set():
                 logger.info(f"Scan cancelled. Indexed {files_indexed_container[0]} files before cancellation.")
-                return {"status": "cancelled", "indexed_files": files_indexed_container[0]}
+                return {
+                    "status": "cancelled",
+                    "indexed_files": files_indexed_container[0],
+                    "total_files": len(all_files),
+                    "fast_skipped": fast_skipped_container[0],
+                }
 
             # Log any unhandled exceptions from individual file tasks
             for i, result in enumerate(results):
@@ -1004,9 +1019,19 @@ class ScanService:
                 elif isinstance(result, Exception):
                     logger.error(f"Error processing file {all_files[i]}: {result}")
             
-            logger.info("Parallel scan completed successfully. Indexed %d / %d files.", files_indexed_container[0], len(all_files))
+            logger.info(
+                "Parallel scan completed successfully. Indexed %d / %d files (%d fast-skipped).",
+                files_indexed_container[0],
+                len(all_files),
+                fast_skipped_container[0],
+            )
 
-            return {"status": "success", "indexed_files": files_indexed_container[0]}
+            return {
+                "status": "success",
+                "indexed_files": files_indexed_container[0],
+                "total_files": len(all_files),
+                "fast_skipped": fast_skipped_container[0],
+            }
 
         except asyncio.CancelledError:
             logger.info(f"Scan cancelled")
@@ -1030,6 +1055,7 @@ class ScanService:
 
         seen_hashes: Set[str] = set()
         files_indexed_container: List[int] = [0]
+        fast_skipped_container: List[int] = [0]
         semaphore = asyncio.Semaphore(1)
 
         await self.process_one_file(
@@ -1039,6 +1065,7 @@ class ScanService:
             seen_hashes=seen_hashes,
             counter_lock=asyncio.Lock(),
             files_indexed_container=files_indexed_container,
+            fast_skipped_container=fast_skipped_container,
             redis_client=redis_client,
             config=config,
             context=context,
@@ -1062,13 +1089,35 @@ class ScanService:
         except json.JSONDecodeError:
             alerts = []
 
+        indexed = files_indexed_container[0] > 0
+        stored_path = meta.get("path", "")
+        is_duplicate = (
+            not indexed
+            and stored_path
+            and stored_path != file_path
+            and await asyncio.to_thread(os.path.exists, stored_path)
+        )
+
+        if is_duplicate:
+            return {
+                "status": "duplicate",
+                "file_hash": file_hash,
+                "message": "Identical content already indexed at another path",
+                "existing_filename": meta.get("filename"),
+                "existing_path": stored_path,
+                "protocols": protocols,
+                "alerts": alerts,
+                "indexed": False,
+            }
+
         return {
             "status": "success",
             "file_hash": file_hash,
             "filename": meta.get("filename"),
             "protocols": protocols,
             "alerts": alerts,
-            "indexed": files_indexed_container[0] > 0,
+            "indexed": indexed,
+            "already_indexed": not indexed and stored_path == file_path,
         }
 
     @with_app_context
@@ -1100,6 +1149,14 @@ class ScanService:
                 )
             )
             self.scan_status["indexed_files"] = result.get("indexed_files", 0)
+            last_run = {
+                "finished_at": time.time(),
+                "status": result.get("status", "success"),
+                "total_files": result.get("total_files", 0),
+                "fast_skipped": result.get("fast_skipped", 0),
+                "indexed_files": result.get("indexed_files", 0),
+            }
+            self.scan_status["last_run"] = last_run
 
             if result.get("status") == "cancelled":
                 self.scan_status["state"] = ScanState.IDLE
@@ -1107,11 +1164,28 @@ class ScanService:
                     f"Scan cancelled. Indexed {self.scan_status['indexed_files']} files before cancellation."
                 )
                 logger.info("Background scan cancelled.")
+            elif result.get("status") == "warning":
+                self.scan_status["state"] = ScanState.IDLE
+                self.scan_status["message"] = result.get("message", "Scan finished with a warning.")
+                logger.warning("Background scan warning: %s", self.scan_status["message"])
             else:
                 self.scan_status["state"] = ScanState.COMPLETED
-                self.scan_status["message"] = (
-                    f"Completed successfully. Indexed {self.scan_status['indexed_files']} files."
-                )
+                indexed = last_run["indexed_files"]
+                total = last_run["total_files"]
+                skipped = last_run["fast_skipped"]
+                if indexed == 0 and skipped > 0:
+                    self.scan_status["message"] = (
+                        f"Completed. {skipped}/{total} file(s) fast-skipped (unchanged), 0 newly indexed."
+                    )
+                elif indexed == 0:
+                    self.scan_status["message"] = (
+                        f"Completed. Scanned {total} file(s), 0 newly indexed."
+                    )
+                else:
+                    self.scan_status["message"] = (
+                        f"Completed successfully. Indexed {indexed}/{total} file(s)"
+                        f" ({skipped} fast-skipped)."
+                    )
                 logger.info("Background scan completed.")
         except Exception as e:
             logger.error(f"Scan failed: {e}")
@@ -1123,7 +1197,18 @@ class ScanService:
                 and self.scan_status["state"] != ScanState.IDLE
             ):
                 self.scan_status["state"] = ScanState.IDLE
-            
+
+            if redis:
+                from services.dashboard_cache import invalidate_dashboard_summary
+
+                invalidate_dashboard_summary(redis)
+                try:
+                    from routes.dashboard import build_dashboard_summary
+
+                    asyncio.run(build_dashboard_summary(context))
+                except Exception as exc:
+                    logger.warning("Dashboard cache rebuild after scan failed: %s", exc)
+
             self.__schedule_lex_rebuild__()
 
     async def backfill_total_packets(self, redis_client: Redis) -> dict:

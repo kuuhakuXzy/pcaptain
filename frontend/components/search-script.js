@@ -995,8 +995,7 @@ function renderTable(files) {
         const checkbox = tr.querySelector(".compare-checkbox");
         if (checkbox) {
             checkbox.addEventListener("change", (e) => {
-                const ok = toggleCompareSelection(fileHash, e.target.checked);
-                if (!ok) e.target.checked = false;
+                toggleCompareSelection(fileHash, e.target.checked);
             });
         }
 
