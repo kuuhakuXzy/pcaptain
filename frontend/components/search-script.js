@@ -856,8 +856,7 @@ function renderTable(files) {
                 <i class="fa fa-copy copy-path-btn" data-path="${file.path}" title="Copy path"></i>
             </td>
             <td data-label="Matched" style="${textStyle}">
-                ${renderMatchedHTML(file)}
-            </td>
+                ${renderMatchedHTML(file, index)} </td>
             <td data-label="Size" style="${textStyle}">${formatFileSize(file.size_bytes)}</td>
             <td data-label="Packet" style="${textStyle}">${file.total_packets || '-'}</td>
         `;
@@ -875,7 +874,17 @@ function renderTable(files) {
 }
 
 // Render matched protocols: show first two, and a (+N) hover tooltip for the rest
-function renderMatchedHTML(file) {
+function renderMatchedHTML(file, index) {
+    if (file.has_error === "true" || file.has_error === true) {
+        const errorType = file.error_type ? file.error_type.toUpperCase() : "ERROR";
+        
+        // Trả về một badge màu đỏ có class 'error-log-trigger' và lưu index vào 'data-index'
+        return `<span class="error-log-trigger" data-index="${index}" title="Click to view Hex Analysis Log" 
+                      style="cursor: pointer; background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; display: inline-block;">
+                    <i class="fa fa-terminal" style="pointer-events: none;"></i> ${errorType}
+                </span>`;
+    }
+
     const matched = file.matched_protocols || [];
     if (!matched.length) return '-';
 
@@ -903,3 +912,36 @@ function formatFileSize(bytes) {
     const size = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
     return `${size} ${units[i]}`;
 }
+
+// Lắng nghe sự kiện click trên toàn bộ bảng kết quả
+document.getElementById('resultBody').addEventListener('click', (e) => {
+    // Kiểm tra xem người dùng có click trúng cái badge báo lỗi không
+    if (e.target.classList.contains('error-log-trigger')) {
+        // Lấy index của file từ data-attribute
+        const fileIndex = e.target.getAttribute('data-index');
+        
+        // Lấy object file tương ứng từ mảng data đang hiển thị (tên mảng này tùy thuộc vào code gốc của bạn, thường là 'currentFiles' hoặc 'files')
+        const file = currentFiles[fileIndex]; 
+        
+        // Đổ dữ liệu log vào thẻ <pre>
+        const logContent = file.detailed_error_log || "No detailed hex analysis log available for this file.";
+        document.getElementById('errorLogContent').textContent = logContent;
+        
+        // Hiển thị Modal
+        document.getElementById('errorLogModal').style.display = 'block';
+        document.getElementById('errorLogModal').classList.remove('hidden');
+    }
+});
+
+// Xử lý nút Đóng Modal
+document.getElementById('closeErrorLogBtn').addEventListener('click', () => {
+    document.getElementById('errorLogModal').style.display = 'none';
+});
+
+// Bấm ra vùng đen ngoài Modal cũng tự đóng
+window.addEventListener('click', (e) => {
+    const modal = document.getElementById('errorLogModal');
+    if (e.target === modal) {
+        modal.style.display = 'none';
+    }
+});
