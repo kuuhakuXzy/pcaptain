@@ -124,6 +124,18 @@
             </div>
         </div>
 
+        <div id="errorLogModal" class="modal hidden" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.7);">
+            <div class="modal-content" style="background-color: #1e1e1e; margin: 5% auto; padding: 20px; border: 1px solid #444; width: 800px; max-width: 95vw; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                <h2 style="color: #f87171; font-family: 'Courier New', Courier, monospace; margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px;">
+                    <i class="fa fa-terminal"></i> PCAP Hex Analysis
+                </h2>
+                <pre id="errorLogContent" style="background-color: #000; color: #d4d4d4; padding: 15px; border-radius: 6px; overflow-x: auto; font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.5; border: 1px solid #333; white-space: pre-wrap; max-height: 60vh;"></pre>
+                <div style="text-align: right; margin-top: 15px;">
+                    <button id="closeErrorLogBtn" style="background-color: #4b5563; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Close</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="config.js"></script>

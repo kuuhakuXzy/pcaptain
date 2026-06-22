@@ -15,6 +15,7 @@ from redis import Redis
 from .logger import get_logger
 from .context import AppContext, with_app_context
 from .config import ScanMode
+from .pcap_hex_analyzer import analyze_corrupted_pcap  # <--- Added import
 
 logger = get_logger(__name__)
 
@@ -466,15 +467,45 @@ class ScanService:
                 quick_threshold_bytes=quick_threshold_bytes,
             )
 
-            if protocol_result is None:
-                logger.warning(f"Skipping file {filename} from index due to processing error.")
-                return
-            
-            protocol_data, packets_scanned = protocol_result
+            # ----------------------------------------------------
+            # ERROR HANDLING & HEX ANALYZER INTEGRATION
+            # ----------------------------------------------------
+            is_error = False
+            error_type = ""
+            error_message = ""
+            detailed_error_log = ""
 
-            if not protocol_data:
+            if protocol_result is None:
+                is_error = True
+                logger.warning(f"Processing error for {filename}. Calling Hex Analyzer.")
+                
+                # Cấp phát thread riêng cho Hex Analyzer
+                detailed_error_log = await asyncio.to_thread(analyze_corrupted_pcap, file_path)
+                error_message = "File is corrupted, truncated, or format is unsupported."
+
+                # Tự động parse loại lỗi dựa trên kết quả text trả về
+                if "MAGIC Error" in detailed_error_log:
+                    error_type = "magic"
+                elif "EMPTY Error" in detailed_error_log:
+                    error_type = "empty"
+                elif "TRUNCATE Error" in detailed_error_log:
+                    error_type = "truncate"
+                elif "LENGTH Error" in detailed_error_log:
+                    error_type = "length"
+                elif "GARBAGE" in detailed_error_log:
+                    error_type = "garbage"
+                else:
+                    error_type = "unknown"
+
+                protocol_data = {}
+                packets_scanned = 0
+            else:
+                protocol_data, packets_scanned = protocol_result
+
+            if not protocol_data and not is_error:
                 logger.warning(f"No protocols found in {filename}. Skipping from index.")
                 return
+            # ----------------------------------------------------
 
             # Compute metadata
             protocol_percentages = calculate_protocol_percentages(protocol_data, packets_scanned)
@@ -518,6 +549,10 @@ class ScanService:
                     "scan_mode": current_scan_mode.value,
                     "pebc": "" if current_pebc is None else current_pebc,
                     "config_version": current_config_version,
+                    "has_error": "true" if is_error else "false",
+                    "error_type": error_type,
+                    "error_message": error_message,
+                    "detailed_error_log": detailed_error_log,
                 }
             )
 
